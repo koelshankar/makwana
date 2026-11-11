@@ -1,26 +1,140 @@
 @import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+  /* Makwana palette, sampled from docs/mockups. */
+  --color-mk-ink: var(--mk-ink);
+  --color-mk-ink-2: var(--mk-ink-2);
+  --color-mk-muted: var(--mk-muted);
+  --color-mk-faint: var(--mk-faint);
+  --color-mk-line: var(--mk-line);
+  --color-mk-canvas: var(--mk-canvas);
+  --color-mk-panel: var(--mk-panel);
+  --color-mk-subtle: var(--mk-subtle);
+  --color-mk-accent: var(--mk-accent);
+  --color-mk-accent-ink: var(--mk-accent-ink);
+  --color-mk-accent-soft: var(--mk-accent-soft);
+  --color-mk-wall: var(--mk-wall);
+  --color-mk-ok: var(--mk-ok);
+  --color-mk-ok-soft: var(--mk-ok-soft);
+  --color-mk-warn: var(--mk-warn);
+  --color-mk-warn-soft: var(--mk-warn-soft);
+  --color-mk-bad: var(--mk-bad);
+  --color-mk-bad-soft: var(--mk-bad-soft);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* Makwana tokens (light theme only). */
+  --mk-ink: #1c1b19; /* near-black text, primary buttons */
+  --mk-ink-2: #56524c; /* secondary text, dimension lines */
+  --mk-muted: #6c6862; /* labels */
+  --mk-faint: #8b867e; /* section headings, hints */
+  --mk-line: #e5e1da; /* borders and dividers */
+  --mk-canvas: #f6f5f2; /* plan canvas */
+  --mk-panel: #ffffff; /* panels and bars */
+  --mk-subtle: #efede9; /* avatar, chips, hatching */
+  --mk-accent: #7153b5; /* selected wall, badges */
+  --mk-accent-ink: #5e3e9e; /* accent text, heading arrows */
+  --mk-accent-soft: #f3efff; /* selected row */
+  --mk-wall: #2a2926; /* walls in plan */
+  --mk-ok: #439c5b;
+  --mk-ok-soft: #e8f4ea;
+  --mk-warn: #c8841d;
+  --mk-warn-soft: #fbf1e0;
+  --mk-bad: #c2412d;
+  --mk-bad-soft: #fbe9e5;
+
+  --background: var(--mk-panel);
+  --foreground: var(--mk-ink);
+  --card: var(--mk-panel);
+  --card-foreground: var(--mk-ink);
+  --popover: var(--mk-panel);
+  --popover-foreground: var(--mk-ink);
+  --primary: var(--mk-ink);
+  --primary-foreground: #ffffff;
+  --secondary: var(--mk-subtle);
+  --secondary-foreground: var(--mk-ink);
+  --muted: var(--mk-subtle);
+  --muted-foreground: var(--mk-muted);
+  --accent: var(--mk-subtle);
+  --accent-foreground: var(--mk-ink);
+  --destructive: var(--mk-bad);
+  --border: var(--mk-line);
+  --input: var(--mk-line);
+  --ring: var(--mk-accent);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.5rem;
+  --sidebar: var(--mk-panel);
+  --sidebar-foreground: var(--mk-ink);
+  --sidebar-primary: var(--mk-ink);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--mk-subtle);
+  --sidebar-accent-foreground: var(--mk-ink);
+  --sidebar-border: var(--mk-line);
+  --sidebar-ring: var(--mk-accent);
+  color-scheme: light;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Every dimension and number is set in Geist Mono with tabular figures. */
+.num {
+  font-family: var(--font-geist-mono);
+  font-variant-numeric: tabular-nums;
 }
