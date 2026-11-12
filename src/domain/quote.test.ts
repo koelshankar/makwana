@@ -83,6 +83,16 @@ describe("workflow", () => {
     expect(designChanged(quoted, { ...quoted, status: "approved", activity: [] })).toBe(false);
   });
 
+  it("watermarks the PDF DRAFT until the quote is approved, and again once an edit returns it to draft (#11)", () => {
+    const pending = sendForApproval(quoted, T, "Rohan Desai");
+    const approved = approve(pending, T, "Store Manager");
+    expect(quoteModel(sampleDesign, catalogue).header.watermark).toBe("DRAFT");
+    expect(quoteModel(quoted, catalogue).header.watermark).toBe("DRAFT");
+    expect(quoteModel(pending, catalogue).header.watermark).toBe("DRAFT");
+    expect(quoteModel(approved, catalogue).header.watermark).toBeUndefined();
+    expect(quoteModel(returnToDraft({ ...approved, discountPct: 3 }, T, "Rohan Desai"), catalogue).header.watermark).toBe("DRAFT");
+  });
+
   it("customer, site, project name and kitchen type count as changes: they print on the approved quote (#6)", () => {
     const approved = approve(sendForApproval(quoted, T, "Rohan Desai"), T, "Store Manager");
     for (const patch of [{ customerName: "Someone Else" }, { siteAddress: "Elsewhere" }, { name: "Another kitchen" }, { kitchenType: "open" as const }]) {

@@ -147,6 +147,12 @@ export function PrintQuote() {
   return (
     <div className="min-h-screen bg-[#e9e7e3] py-8 text-mk-ink print:bg-white print:py-0" data-print-ready={ready || undefined}>
       <style>{PRINT_CSS}</style>
+      {h.watermark && (
+        // Fixed, so Chrome repeats it on every printed page.
+        <div aria-hidden className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center overflow-hidden" data-watermark>
+          <span className="-rotate-[35deg] text-[150px] font-bold tracking-[0.2em] whitespace-nowrap text-[rgba(28,27,25,0.07)] select-none">{h.watermark}</span>
+        </div>
+      )}
       {snapshot === null && <OffscreenSnapshot onShot={setOwnShot} />}
       <div className="no-print mx-auto mb-4 flex w-[210mm] items-center justify-between">
         <Link href="/quote" className="flex items-center gap-2 text-[13.5px] font-medium hover:underline">

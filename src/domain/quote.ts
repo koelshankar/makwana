@@ -187,6 +187,8 @@ export interface QuoteModel {
     ruleSetVersion: string;
     approvedBy?: string;
     approvedAt?: string;
+    /** "DRAFT" across every page of the PDF until the quote is approved. */
+    watermark?: "DRAFT";
   };
   summary: {
     walls: number;
@@ -321,6 +323,7 @@ export function quoteModel(project: Project, cat: Catalogue, results: CheckResul
       ruleSetVersion: project.quote?.ruleSetVersion ?? RULE_SET_VERSION,
       approvedBy: project.quote?.approvedBy,
       approvedAt: project.quote?.approvedAt ? formatDate(project.quote.approvedAt) : undefined,
+      watermark: project.status === "approved" ? undefined : "DRAFT",
     },
     summary: {
       walls: project.room.walls.length,
