@@ -51,10 +51,38 @@ Checked in the code, then measured in Chrome against the production build at 136
 | D8 | "THREE.Clock" deprecation warning on every 3D view | Holds | `kitchen-scene.tsx` drops exactly that message through `THREE.setConsoleFunction` (R3F 9 still creates a `THREE.Clock`). The console guard sees no warning on any 3D screen. Comes back if three's message text changes. |
 | D9 | A save that wasn't valid JSON left the loading screen on forever | Holds | `safeJSONStorage` turns a parse error into an empty save, which `merge` replaces with the empty Mehta room. Reload with `{{{ not json`: no skeleton, toast "The saved project couldn't be opened". |
 
+## Brief: section 6 main script (`e2e/main-script.spec.ts`)
+
+One test, Reset demo to the PDF and the activity log, in one page with no reload (no `load` event after the first, and a marker set on `window` at the start is still there at the end). It runs at 1366×768 and 1440×900 and passes at both. Every "Expect" line in the brief is an assertion. The console guard fails it on any error or warning, and a screenshot of each stage goes to the test's output folder.
+
+How each line is checked, where it isn't obvious:
+
+- Snapping: each drop is aimed 20–40 mm off its place and must land exactly there (HU900 300, SU900 1200, BC1000 2200, BD600 560 and 1160). Positions are read from the saved project in localStorage.
+- The blocked card: the title says tall unit and window, "+1 more blocking issue", the fix "Move to Wall B, 1760–2360 mm", and nothing placed. After the fix: T600OM at B 1760, and a 40 mm gap warning on Wall B.
+- Filler: a filler at A 2100 +100, then a single check left (the 40 mm warning), and Review Quote enabled.
+- Appliances: green hosts (`data-host`) for the sink, hob and oven while dragging. Sink, hob, oven and microwave fitted into the right units; chimney at A 300, above the hob; "5 appliances". Cut-outs in the elevation ("Sink cut-out", "Hob cut-out") and the plan (`data-cutout`).
+- Finish: 3D picture, unit price, running total and footer delta change; the footer delta equals the change in the total.
+- Customer view: fills the viewport, project name, wall height, presets, and no buttons beyond the view controls. Esc leaves it, and so does Exit. Project and footer are unchanged.
+- Quote: no number before sending; 0147 after; manager banner and buttons; "Approved by Store Manager". The clipboard holds the quote number and the grand total. `window.print` is stubbed and must be called once. The print page has 0147, Approved, a decoded 3D image, a plan with both cut-outs, elevations A and B, unit codes, totals and no watermark. With print media the toast and the screen controls are hidden. Activity has six entries in order (discount, created, sent, approved, shared, shared), each with seconds. `nextQuoteSeq` is 148 at the end: one number used.
+
+What the test cannot see: the native print dialog and the saved PDF file; whether the 3D cut-outs are *right* (it checks only that the 3D picture changed after the drops); real full screen (headless). In the test, Esc is a synthetic key, so the test leaves browser full screen itself, as a real Esc would.
+
+Test-only waits (not app bugs): dnd-kit swallows clicks for 50 ms after a drop, so the test waits 100 ms after each drop; and it waits for each drop to be saved before the next step.
+
+Findings from writing it:
+
+| ID | Severity | Finding |
+|---|---|---|
+| M1 | Demo risk | **BC1000 can snap onto SU900 at 1366.** Neighbour edges win over the wall end, and the snap distance is 8 px: 87 mm at 1366, 79 mm at 1440. Dropped 13–87 mm short of the end of wall A at 1366, BC1000 lands at 2100 against SU900. The 100 mm gap, its warning and the filler step of the script then never happen. Dropped at the end or past it, it lands at 2200. The test drops 20 mm past the end. Options: try the nearest target across neighbour and run-end classes, or have the presenter drag past the wall end. |
+| M2 | Minor | **A finish change doesn't show in the elevation while the unit is selected.** The elevation fills a selected unit with the selection colour (`--mk-accent-soft`). The brief says "elevation, 3D and price change together"; the 3D view and price do, but the elevation shows the new finish only after Esc or clicking away. The test checks the elevation after Esc. |
+| M3 | Brief | **"Shared twice" needs Download PDF from the Share dialog.** That button logs a share; the footer's Download PDF doesn't. The brief says "Click Download PDF" right after Copy, with the dialog still open, so the test uses the dialog's button. A presenter using the footer button gets five entries, not six. |
+| M4 | Minor (D5) | After approval the Totals note still reads "above 5% · needs approval" (see D5). The test doesn't assert it either way. |
+
 ## Open items
 
 - D5: after approval, the Totals discount note still reads "above 5% · needs approval". A presenter would see it right after approving. Fix: pass the approval to `TotalsCard` and read "above 5% · approved by Store Manager".
-- The section 6 and 7 Playwright tests are not written.
+- M1: BC1000 snapping at 1366 (see the main script findings).
+- The section 7 Playwright tests are not written.
 - #1: install, build and run `npm start` once offline on the demo laptop.
 - Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
 
