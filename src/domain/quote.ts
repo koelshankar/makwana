@@ -53,9 +53,18 @@ export function createQuote(project: Project, sequence: number, at: string, by: 
   return logActivity(withQuote, at, by, "quote_created", `Quote ${number} created (Version 1)`);
 }
 
-/** True when the design, the room or the discount differ: what an approval was given for. */
+/** Project details printed on the quote and in the WhatsApp message: an approval covers them too. */
+const QUOTED_DETAILS = ["name", "customerName", "siteAddress", "kitchenType"] as const;
+
+/** True when the design, the room, the discount or the quoted details differ: what an approval was given for. */
 export function designChanged(before: Project, after: Project): boolean {
-  return before.room !== after.room || before.modules !== after.modules || before.appliances !== after.appliances || before.discountPct !== after.discountPct;
+  return (
+    before.room !== after.room ||
+    before.modules !== after.modules ||
+    before.appliances !== after.appliances ||
+    before.discountPct !== after.discountPct ||
+    QUOTED_DETAILS.some((k) => before[k] !== after[k])
+  );
 }
 
 /**

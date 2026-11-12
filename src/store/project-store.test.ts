@@ -436,6 +436,20 @@ describe("quote workflow in the store", () => {
     expect(s().project.quote!.version).toBe(2);
   });
 
+  it("changing the customer name on an approved quote returns it to draft as version 2 (#6)", () => {
+    const store = quoted();
+    const s = () => store.getState();
+    s().sendForApproval();
+    s().approve();
+    s().setProjectInfo({ customerName: "Priya Shah" });
+    expect(s().project.status).toBe("draft");
+    expect(s().project.quote!.version).toBe(2);
+    expect(s().ui.returnedToDraft).toEqual({ version: 2, n: 1 });
+    // The same value again is not a change.
+    s().setProjectInfo({ customerName: "Priya Shah" });
+    expect(s().project.quote!.version).toBe(2);
+  });
+
   it("sent back with a comment by the manager; role and approval mode survive loading a project", () => {
     const store = quoted();
     store.getState().sendForApproval();

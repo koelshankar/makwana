@@ -80,7 +80,20 @@ describe("workflow", () => {
   it("only design, room or discount changes count", () => {
     expect(designChanged(quoted, { ...quoted, discountPct: 8 })).toBe(true);
     expect(designChanged(quoted, { ...quoted, modules: [...quoted.modules] })).toBe(true);
-    expect(designChanged(quoted, { ...quoted, status: "approved", customerName: "X" })).toBe(false);
+    expect(designChanged(quoted, { ...quoted, status: "approved", activity: [] })).toBe(false);
+  });
+
+  it("customer, site, project name and kitchen type count as changes: they print on the approved quote (#6)", () => {
+    const approved = approve(sendForApproval(quoted, T, "Rohan Desai"), T, "Store Manager");
+    for (const patch of [{ customerName: "Someone Else" }, { siteAddress: "Elsewhere" }, { name: "Another kitchen" }, { kitchenType: "open" as const }]) {
+      const edited = { ...approved, ...patch };
+      expect(designChanged(approved, edited)).toBe(true);
+      const back = returnToDraft(edited, T, "Rohan Desai");
+      expect(back.status).toBe("draft");
+      expect(back.quote!.version).toBe(2);
+      expect(back.quote!.approvedBy).toBeUndefined();
+    }
+    expect(designChanged(approved, { ...approved, customerName: approved.customerName })).toBe(false);
   });
 
   it("sharing: after approval; or in 'only when flagged' mode when nothing needs approval", () => {
