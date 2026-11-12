@@ -33,7 +33,9 @@ Branch: `hardening-1` (from `main` at `6a9cd17`). One commit per finding. Not me
 - **#11** `quoteModel` sets `header.watermark = "DRAFT"` unless approved; the print page repeats it on every page. Tests: domain unit + e2e.
 - **#12** The toast uses `project.preparedBy`. Test: e2e (seeded with another preparer).
 
-Final run: `npm test` 172/172, `tsc` and `lint` clean, build passes (`/design` 339 kB), `npm run e2e` 12/12.
+Final run (pass 1): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/design` 339 kB), `npm run e2e` 12/12.
+
+Final run (pass 2): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/design` 339 kB, shared 233 kB). `npx playwright test`: 38 passed, 2 skipped (automatic performance mode, see section 7), 40 in all across both sizes. That count includes the console guard's expected-failure self-check.
 
 ## Brief: "Fixed on Day 10" check
 
