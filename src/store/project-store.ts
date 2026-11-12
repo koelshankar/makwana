@@ -10,7 +10,7 @@ import { defaultBlindSide, findPlacement, isModulePlacement, placementToWorldBox
 import { priceProject } from "@/domain/pricing";
 import { checkCandidate, hasBlocked, issueKey, runAllChecks, runRawChecks } from "@/domain/rules";
 import { validateRoom } from "@/domain/room-validation";
-import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
+import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markPdfDownloaded, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
 import { isUsableProject } from "@/domain/project-validation";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import type { WallHeightMode } from "@/domain/three-model";
@@ -188,6 +188,8 @@ export interface ProjectState {
   /** Needs a comment; the salesperson sees it as a banner. */
   sendBack: (comment: string) => void;
   markShared: (how: string) => void;
+  /** Download PDF: a share if approved, otherwise a draft download (see markPdfDownloaded). */
+  markPdfDownloaded: () => void;
   setRole: (role: Role) => void;
   setApprovalMode: (mode: ApprovalMode) => void;
   setSnapshot: (dataUrl: string | null) => void;
@@ -674,6 +676,7 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           approve: () => workflow((p) => approve(p, now(), actor())),
           sendBack: (comment) => workflow((p) => sendBack(p, now(), actor(), comment)),
           markShared: (how) => workflow((p) => markShared(p, now(), actor(), how)),
+          markPdfDownloaded: () => workflow((p) => markPdfDownloaded(p, now(), actor())),
           setRole: (role) =>
             set((s) => {
               s.settings.role = role;

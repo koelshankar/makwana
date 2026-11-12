@@ -385,8 +385,9 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     expect(pasted).toContain(grand);
     await shot("share");
 
-    // "Shared twice" in the activity log: the copy, and Download PDF (here from the dialog; the
-    // footer's button logs the same, see focused.spec.ts). Exactly two, so nothing logs twice.
+    // "Shared twice" in the activity log: the copy, and Download PDF of the approved quote (here
+    // from the dialog; the footer's button logs the same, see focused.spec.ts). Exactly two, so
+    // nothing logs twice.
     await dialog.getByRole("button", { name: "Download PDF" }).click();
     await expect(page).toHaveURL(/\/quote\/print\?auto=1$/);
     await expect(page.locator("[data-print-ready]")).toBeVisible();

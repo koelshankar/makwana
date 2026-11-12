@@ -13,14 +13,15 @@ import type { CheckResult } from "@/domain/types";
 import { projectStore, useProjectStore } from "@/store/project-store";
 
 /**
- * Gives the quote its number if it has none, logs the download in Activity, takes the 3D picture at
+ * Gives the quote its number if it has none, logs the download in Activity (a share once approved,
+ * otherwise "Draft PDF downloaded"), takes the 3D picture at
  * the iso preset, hands it to the print page and opens it. Used by the footer and the Share dialog.
  */
 export function useDownloadPdf(scene: RefObject<SceneApi | null>) {
   const router = useRouter();
   return () => {
     projectStore.getState().ensureQuote();
-    projectStore.getState().markShared("PDF downloaded to send");
+    projectStore.getState().markPdfDownloaded();
     let shot: string | null = null;
     try {
       shot = scene.current?.snapshot() ?? null;

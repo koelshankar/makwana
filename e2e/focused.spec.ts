@@ -70,10 +70,21 @@ test("download assigns a number", async ({ page, context }) => {
   await expect(page.locator("body")).toContainText("MMK-AND-2026-0147");
   await page.getByRole("link", { name: "Back to the quote" }).click();
   await expect(title(page)).toHaveText("Quote MMK-AND-2026-0147 · Version 1");
-  // The footer button logs the download in Activity, as the Share dialog's button does (M3).
+  // The footer button logs the download in Activity (M3). Not approved: a draft, not a share.
+  await page.locator("[data-activity-log] > button").click();
+  await expect(page.locator("[data-activity=draft_downloaded]")).toHaveCount(1);
+  await expect(page.locator("[data-activity=draft_downloaded]")).toContainText("Draft PDF downloaded");
+  await expect(page.locator("[data-activity=shared]")).toHaveCount(0);
+
+  // Approved: the same button logs a share.
+  await approve(page);
+  await page.locator("[data-download]").click();
+  await expect(page.locator("[data-print-ready]")).toBeVisible();
+  await page.getByRole("link", { name: "Back to the quote" }).click();
   await page.locator("[data-activity-log] > button").click();
   await expect(page.locator("[data-activity=shared]")).toHaveCount(1);
   await expect(page.locator("[data-activity=shared]")).toContainText("Version 1 shared with Anil Mehta · PDF downloaded to send");
+  await expect(page.locator("[data-activity=draft_downloaded]")).toHaveCount(1);
 });
 
 test('share in "Only when flagged" mode', async ({ page }) => {

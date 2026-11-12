@@ -9,6 +9,7 @@ import {
   formatDate,
   formatQuoteNumber,
   logActivity,
+  markPdfDownloaded,
   markShared,
   quoteModel,
   returnToDraft,
@@ -121,6 +122,16 @@ describe("workflow", () => {
     const shared = markShared(quoted, T, "R", "WhatsApp message copied");
     expect(shared.activity!.at(-1)).toMatchObject({ action: "shared", detail: "Version 1 shared with Anil Mehta · WhatsApp message copied" });
     expect(logActivity(shared, T, "R", "discount_changed", "x").activity).toHaveLength(3);
+  });
+
+  it("logs a PDF download as a share only once approved", () => {
+    const draft = markPdfDownloaded(quoted, T, "R");
+    expect(draft.activity!.at(-1)).toMatchObject({ action: "draft_downloaded", detail: "Draft PDF downloaded" });
+    const pending = markPdfDownloaded(sendForApproval(quoted, T, "R"), T, "R");
+    expect(pending.activity!.at(-1)).toMatchObject({ action: "draft_downloaded" });
+    const approved = markPdfDownloaded(approve(sendForApproval(quoted, T, "R"), T, "M"), T, "R");
+    expect(approved.activity!.at(-1)).toMatchObject({ action: "shared", detail: "Version 1 shared with Anil Mehta · PDF downloaded to send" });
+    expect(markPdfDownloaded(sampleDesign, T, "R")).toBe(sampleDesign); // no quote yet: nothing to log
   });
 });
 

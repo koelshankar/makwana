@@ -110,6 +110,16 @@ export function markShared(project: Project, at: string, by: string, how: string
   return logActivity(project, at, by, "shared", `Version ${project.quote.version} shared with ${project.customerName || "the customer"} · ${how}`);
 }
 
+/**
+ * Download PDF: an approved quote's PDF is shared with the customer; any other is a draft (it
+ * carries the DRAFT watermark), logged as such and not counted as a share.
+ */
+export function markPdfDownloaded(project: Project, at: string, by: string): Project {
+  if (!project.quote) return project;
+  if (project.status === "approved") return markShared(project, at, by, "PDF downloaded to send");
+  return logActivity(project, at, by, "draft_downloaded", "Draft PDF downloaded");
+}
+
 /** The approval-status rule results (discount above the limit, custom sizes). */
 export function approvalItems(results: CheckResult[]): CheckResult[] {
   return results.filter((r) => r.status === "approval");

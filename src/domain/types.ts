@@ -167,6 +167,7 @@ export type ActivityAction =
   | "approved"
   | "sent_back"
   | "shared"
+  | "draft_downloaded"
   | "returned_to_draft"
   | "version_created";
 
