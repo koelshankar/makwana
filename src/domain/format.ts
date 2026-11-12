@@ -13,3 +13,14 @@ export function formatINR(n: number): string {
   const s = formatIndianNumber(n);
   return s.startsWith("-") ? `-₹${s.slice(1)}` : `₹${s}`;
 }
+
+/**
+ * A typed discount percentage, or null to keep the current one: empty or not a number. Accepts a
+ * decimal comma ("7,5") and a trailing "%".
+ */
+export function parseDiscountInput(text: string): number | null {
+  const t = text.trim().replace(/%$/, "").trim().replace(",", ".");
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}

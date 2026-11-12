@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChevronRight, History } from "lucide-react";
 import { useState } from "react";
-import { formatINR } from "@/domain/format";
+import { formatINR, parseDiscountInput } from "@/domain/format";
 import { formatDate, type QuoteItem, type QuoteModel } from "@/domain/quote";
 import type { ActivityEntry } from "@/domain/types";
 import { cn } from "@/lib/utils";
@@ -51,8 +51,9 @@ function DiscountInput({ value }: { value: number }) {
   const [draft, setDraft] = useState<string | null>(null);
   const commit = () => {
     if (draft === null) return;
-    const n = Number(draft.replace(",", "."));
-    if (Number.isFinite(n)) projectStore.getState().setDiscount(n);
+    // Empty or not a number keeps the old value (an empty field used to mean 0%).
+    const n = parseDiscountInput(draft);
+    if (n !== null) projectStore.getState().setDiscount(n);
     setDraft(null);
   };
   return (
