@@ -21,7 +21,6 @@ const C = {
   hatch: "#bdb7ad",
   accent: "var(--mk-accent)",
   accentInk: "var(--mk-accent-ink)",
-  accentSoft: "var(--mk-accent-soft)",
   ok: "var(--mk-ok)",
   okSoft: "var(--mk-ok-soft)",
   bad: "var(--mk-bad)",
@@ -320,7 +319,8 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
     const w = u.x1 - u.x0;
     const p = u.placement;
     const isFiller = u.mod?.family === "FIL";
-    const fill = isBlocked ? C.badSoft : isSel ? C.accentSoft : "white";
+    // Selected: an outline only, so the unit keeps its finish tint (M2). Blocked: filled red.
+    const fill = isBlocked ? C.badSoft : "white";
     const stroke = isBlocked ? C.bad : isSel ? C.accent : C.ink;
     const tint = isModulePlacement(p) ? getFinish(catalogue, p.finishId).hex : "#9aa3ad";
     const bodyZ0 = u.layer === "base" && u.mod ? ZONES.baseCarcass.bottom : u.z0;
@@ -351,12 +351,21 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
           />
         ) : isFridge ? (
           // Space reserved for the customer's refrigerator: an outline only.
-          <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - u.z0} fill={isSel || isBlocked ? fill : "white"} fillOpacity={isSel || isBlocked ? 1 : 0.01} stroke={stroke} strokeWidth={isSel || isBlocked ? 2 : 1.2} strokeDasharray="10 6" vectorEffect="non-scaling-stroke" />
+          <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - u.z0} fill={fill} fillOpacity={isBlocked ? 1 : 0.01} stroke={stroke} strokeWidth={isSel || isBlocked ? 2 : 1.2} strokeDasharray="10 6" vectorEffect="non-scaling-stroke" />
         ) : (
           <>
             <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - (isDishwasher ? ZONES.plinth.top : bodyZ0)} fill={fill} stroke={stroke} strokeWidth={isSel || isBlocked ? 2 : 1} vectorEffect="non-scaling-stroke" />
-            {!isSel && !isBlocked && (
-              <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - (isDishwasher ? ZONES.plinth.top : bodyZ0)} fill={isDishwasher ? baseHex : tint} opacity={isDishwasher ? 0.3 : 0.14} pointerEvents="none" />
+            {!isBlocked && (
+              <rect
+                x={u.x0}
+                y={Y(u.z1)}
+                width={w}
+                height={u.z1 - (isDishwasher ? ZONES.plinth.top : bodyZ0)}
+                fill={isDishwasher ? baseHex : tint}
+                opacity={isDishwasher ? 0.3 : 0.14}
+                pointerEvents="none"
+                data-finish-tint={isModulePlacement(p) ? p.finishId : undefined}
+              />
             )}
             {isDishwasher && <line x1={u.x0 + w * 0.3} y1={Y(u.z1 - 50)} x2={u.x1 - w * 0.3} y2={Y(u.z1 - 50)} stroke={C.ink2} strokeWidth={1.6} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           </>

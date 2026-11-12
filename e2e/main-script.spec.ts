@@ -271,18 +271,25 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
   await test.step("Design: finishes", async () => {
     const hu = (await modulesOf(page, "HU900"))[0];
     const unit = page.locator(`[data-elevation=A] [data-unit="${hu.id}"]`).first();
-    // The elevation draws a selected unit in the selection colour, so compare it unselected.
-    const elevationBefore = await unit.innerHTML();
+    const tint = unit.locator("[data-finish-tint]");
     const at = await onWall(page, "A", 750, 150); // low on the unit, below the hob
     await page.mouse.click(at.x, at.y);
     const inspector = page.getByRole("complementary", { name: "Inspector" });
     await expect(inspector).toContainText("HU900");
+    // Selected shows as an outline: the finish tint stays (M2).
+    await expect(tint).toHaveAttribute("data-finish-tint", hu.finishId!);
+    const tintBefore = await tint.getAttribute("fill");
     const threeBefore = await settledShot(threeCanvas);
     const totalBefore = await runningTotal(page);
     const unitPriceBefore = await page.locator("[data-unit-price]").textContent();
 
     await inspector.getByRole("radiogroup", { name: "Finish" }).getByRole("radio", { checked: false }).first().click();
     await expect.poll(async () => (await modulesOf(page, "HU900"))[0].finishId).not.toBe(hu.finishId);
+    const newFinish = (await modulesOf(page, "HU900"))[0].finishId!;
+    // Elevation, 3D and price together, with the unit still selected.
+    await expect(inspector).toContainText("HU900");
+    await expect(tint, "the elevation changes").toHaveAttribute("data-finish-tint", newFinish);
+    expect(await tint.getAttribute("fill")).not.toBe(tintBefore);
     await expect.poll(async () => (await settledShot(threeCanvas)).equals(threeBefore), { message: "the 3D view changes" }).toBe(false);
     await expect.poll(() => runningTotal(page), { message: "the price changes" }).not.toBe(totalBefore);
     await expect(page.locator("[data-unit-price]")).not.toHaveText(unitPriceBefore!);
@@ -291,7 +298,7 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     await shot("finish");
     await page.keyboard.press("Escape");
     await expect(inspector).not.toContainText("HU900");
-    expect(await unit.innerHTML(), "the elevation shows the new finish").not.toBe(elevationBefore);
+    await expect(tint).toHaveAttribute("data-finish-tint", newFinish);
   });
 
   await test.step("Design: customer view", async () => {
