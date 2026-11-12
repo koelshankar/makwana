@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
-import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import { createJSONStorage, persist, type PersistStorage, type StateStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
 import { catalogue, getModule } from "@/domain/catalogue";
@@ -11,7 +11,8 @@ import { priceProject } from "@/domain/pricing";
 import { checkCandidate, hasBlocked, issueKey, runAllChecks, runRawChecks } from "@/domain/rules";
 import { validateRoom } from "@/domain/room-validation";
 import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
-import { sampleDesign } from "@/domain/seed";
+import { isUsableProject } from "@/domain/project-validation";
+import { emptyMehta, sampleDesign } from "@/domain/seed";
 import type { WallHeightMode } from "@/domain/three-model";
 import type {
   AppliancePlacement,
@@ -68,6 +69,8 @@ export interface UiState {
   snapshot: string | null;
   /** Set when an edit sends a pending or approved quote back to draft, for the toast. */
   returnedToDraft: { version: number; n: number } | null;
+  /** The saved project couldn't be used and the empty Mehta room was loaded instead, for the toast. */
+  restoreFailed: boolean;
 }
 
 /**
@@ -79,11 +82,21 @@ export interface Settings {
   approvalMode: ApprovalMode;
   /** Next quote sequence number for this store. */
   nextQuoteSeq: number;
+  /** 3D at device pixel ratio 1, without contact shadows or edge lines, for slow machines. */
+  performanceMode: boolean;
+  /** Performance mode was switched on automatically once; it isn't offered again. */
+  performanceAutoSwitched: boolean;
 }
 
 export type Role = "salesperson" | "manager";
 
-export const initialSettings: Settings = { role: "salesperson", approvalMode: "always", nextQuoteSeq: 147 };
+export const initialSettings: Settings = {
+  role: "salesperson",
+  approvalMode: "always",
+  nextQuoteSeq: 147,
+  performanceMode: false,
+  performanceAutoSwitched: false,
+};
 
 export const initialUi: UiState = {
   selectedPlacementId: null,
@@ -95,6 +108,7 @@ export const initialUi: UiState = {
   customerView: false,
   snapshot: null,
   returnedToDraft: null,
+  restoreFailed: false,
 };
 
 export interface ProjectState {
@@ -107,6 +121,8 @@ export interface ProjectState {
 
   /** Replaces the project and clears history (demo menu, "new project"). */
   loadProject: (project: Project) => void;
+  /** Empty Mehta room, default settings (quote sequence 0147) and view state, no history. */
+  resetDemo: () => void;
   undo: () => void;
   redo: () => void;
 
@@ -148,8 +164,12 @@ export interface ProjectState {
   setStatus: (status: ProjectStatus) => void;
 
   // Quote workflow. These never enter undo history: undo changes the design, not the paperwork.
-  /** Gives the project its quote number (version 1) the first time it reaches the Quote screen. */
+  /**
+   * Gives the project its quote number (version 1), once. Called only when the quote leaves the
+   * salesperson: sent for approval, shared or downloaded. Until then it is a draft without a number.
+   */
   ensureQuote: () => void;
+  /** Assigns the quote number first if there isn't one. */
   sendForApproval: () => void;
   approve: () => void;
   /** Needs a comment; the salesperson sees it as a banner. */
@@ -158,6 +178,9 @@ export interface ProjectState {
   setRole: (role: Role) => void;
   setApprovalMode: (mode: ApprovalMode) => void;
   setSnapshot: (dataUrl: string | null) => void;
+  /** `auto` marks the one-time automatic switch after slow frames. */
+  setPerformanceMode: (on: boolean, auto?: boolean) => void;
+  clearRestoreFailed: () => void;
   /** Selects a unit and makes its wall the active elevation. */
   select: (id: string | null) => void;
   /** Shows a wall's elevation. */
@@ -207,10 +230,62 @@ function nextFeatureId(project: Project, kind: string): string {
 
 /** Storage for persist: localStorage in the browser, nothing on the server or in tests. */
 const noStorage: StateStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
-const browserStorage = () => (typeof window === "undefined" ? noStorage : window.localStorage);
+/** localStorage, never throwing: blocked storage reads as empty and a full one skips the save. */
+const browserStorage = (): StateStorage => {
+  if (typeof window === "undefined") return noStorage;
+  try {
+    const ls = window.localStorage;
+    return {
+      getItem: (k) => ls.getItem(k),
+      setItem: (k, v) => {
+        try {
+          ls.setItem(k, v);
+        } catch {
+          // Quota or privacy mode: the demo keeps working, just unsaved.
+        }
+      },
+      removeItem: (k) => ls.removeItem(k),
+    };
+  } catch {
+    return noStorage;
+  }
+};
 
 export const PERSIST_KEY = "makwana:project";
 export const PERSIST_VERSION = 2;
+
+type Saved = Pick<ProjectState, "project" | "settings">;
+
+/** JSON storage where an unreadable save comes back as an unusable one, so `merge` replaces it. */
+function safeJSONStorage(storage: () => StateStorage): PersistStorage<Saved> {
+  const json = createJSONStorage<Saved>(storage)!;
+  return {
+    ...json,
+    getItem: (name) => {
+      try {
+        return json.getItem(name);
+      } catch {
+        return { state: {} as Saved, version: PERSIST_VERSION };
+      }
+    },
+  };
+}
+
+const ROLES: Role[] = ["salesperson", "manager"];
+const APPROVAL_MODES: ApprovalMode[] = ["always", "flagged"];
+
+/** Saved settings field by field; anything missing or malformed keeps its default. */
+function restoreSettings(saved: unknown, defaults: Settings): Settings {
+  const s = (typeof saved === "object" && saved !== null ? saved : {}) as Partial<Record<keyof Settings, unknown>>;
+  const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
+  return {
+    role: ROLES.includes(s.role as Role) ? (s.role as Role) : defaults.role,
+    approvalMode: APPROVAL_MODES.includes(s.approvalMode as ApprovalMode) ? (s.approvalMode as ApprovalMode) : defaults.approvalMode,
+    nextQuoteSeq: Number.isInteger(s.nextQuoteSeq) && (s.nextQuoteSeq as number) > 0 ? (s.nextQuoteSeq as number) : defaults.nextQuoteSeq,
+    performanceMode: bool(s.performanceMode, defaults.performanceMode),
+    performanceAutoSwitched: bool(s.performanceAutoSwitched, defaults.performanceAutoSwitched),
+  };
+}
 
 export function createProjectStore(initial: Project, storage: () => StateStorage = () => noStorage, now: () => string = () => new Date().toISOString()) {
   return createStore<ProjectState>()(
@@ -319,6 +394,14 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             set((s) => {
               s.project = project;
               s.ui = initialUi;
+              s.past = [];
+              s.future = [];
+            }),
+          resetDemo: () =>
+            set((s) => {
+              s.project = emptyMehta;
+              s.ui = initialUi;
+              s.settings = initialSettings;
               s.past = [];
               s.future = [];
             }),
@@ -529,7 +612,10 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
               s.settings.nextQuoteSeq = seq + 1;
             });
           },
-          sendForApproval: () => workflow((p) => sendForApproval(p, now(), actor(), approvalItems(runRawChecks(p, catalogue)))),
+          sendForApproval: () => {
+            get().ensureQuote();
+            workflow((p) => sendForApproval(p, now(), actor(), approvalItems(runRawChecks(p, catalogue))));
+          },
           approve: () => workflow((p) => approve(p, now(), actor())),
           sendBack: (comment) => workflow((p) => sendBack(p, now(), actor(), comment)),
           markShared: (how) => workflow((p) => markShared(p, now(), actor(), how)),
@@ -544,6 +630,15 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           setSnapshot: (dataUrl) =>
             set((s) => {
               s.ui.snapshot = dataUrl;
+            }),
+          setPerformanceMode: (on, auto = false) =>
+            set((s) => {
+              s.settings.performanceMode = on;
+              if (auto) s.settings.performanceAutoSwitched = true;
+            }),
+          clearRestoreFailed: () =>
+            set((s) => {
+              s.ui.restoreFailed = false;
             }),
           select: selectPlacement,
           showWall: (wallId) =>
@@ -573,15 +668,19 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
       {
         name: PERSIST_KEY,
         version: PERSIST_VERSION,
-        storage: createJSONStorage(storage),
-        partialize: (s) => ({ project: s.project, settings: s.settings }),
-        // Older saves have no settings: keep the defaults for whatever is missing.
+        storage: safeJSONStorage(storage),
+        partialize: (s): Saved => ({ project: s.project, settings: s.settings }),
+        // A save that fails validation becomes the empty Mehta room (with a toast), never a blank
+        // screen. Older saves have no settings: keep the defaults for whatever is missing.
         merge: (persisted, current) => {
-          const p = (persisted ?? {}) as Partial<Pick<ProjectState, "project" | "settings">>;
-          return { ...current, ...(p.project ? { project: p.project } : {}), settings: { ...current.settings, ...p.settings } };
+          if (persisted === undefined) return current;
+          const p = (typeof persisted === "object" && persisted !== null ? persisted : {}) as Partial<Record<keyof Saved, unknown>>;
+          const settings = restoreSettings(p.settings, current.settings);
+          if (isUsableProject(p.project, catalogue)) return { ...current, project: p.project, settings };
+          return { ...current, project: emptyMehta, settings, ui: { ...current.ui, restoreFailed: true } };
         },
         // A stored project from another version may not match today's types: start from the seed.
-        migrate: () => ({ project: initial }),
+        migrate: (): Saved => ({ project: initial, settings: initialSettings }),
         // Rehydrated on the client after mount, so server and first client render agree.
         skipHydration: true,
       },

@@ -2,14 +2,14 @@
 
 import { MessageSquareWarning, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { SceneApi } from "@/components/three/kitchen-scene";
 import { Button } from "@/components/ui/button";
 import { catalogue } from "@/domain/catalogue";
 import { formatINR } from "@/domain/format";
 import { formatDate, quoteModel } from "@/domain/quote";
 import { hasBlocked } from "@/domain/rules";
-import { projectStore, useProjectStore, useRawChecks, useRoomValidation } from "@/store/project-store";
+import { useProjectStore, useRawChecks, useRoomValidation } from "@/store/project-store";
 import { ActivityLog, AppliancesCard, HardwareCard, TotalsCard } from "./quote-cards";
 import { QuoteFooter } from "./quote-footer";
 import { QuoteGroups } from "./quote-groups";
@@ -25,11 +25,6 @@ export function QuoteScreen() {
   const blocked = hasBlocked(results);
   const scene = useRef<SceneApi>(null);
   const model = useMemo(() => quoteModel(project, catalogue, results), [project, results]);
-
-  // The quote gets its number the first time the design reaches this screen cleanly.
-  useEffect(() => {
-    if (room.ok && !blocked) projectStore.getState().ensureQuote();
-  }, [room.ok, blocked]);
 
   if (!room.ok || blocked) {
     return (
@@ -51,7 +46,13 @@ export function QuoteScreen() {
         <div className="min-w-0">
           <div className="flex items-center gap-4">
             <h1 className="text-[24px] font-medium tracking-tight whitespace-nowrap" data-quote-title>
-              Quote <span className="num">{h.quoteNumber}</span> · Version {h.version}
+              {project.quote ? (
+                <>
+                  Quote <span className="num">{h.quoteNumber}</span> · Version {h.version}
+                </>
+              ) : (
+                <>Draft quote · Version {h.version}</>
+              )}
             </h1>
             <StatusPill status={project.status} />
           </div>

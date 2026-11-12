@@ -119,7 +119,18 @@ interface Turn {
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const UP = new THREE.Vector3(0, 1, 0);
 
-export const CameraRig = forwardRef<SceneApi, { room: Room; boxes: Map<string, Box>; activeWallId?: string | null }>(function CameraRig({ room, boxes, activeWallId }, ref) {
+/** Orbiting counts as slow when the smoothed frame time stays above this for SLOW_FOR_MS. */
+const SLOW_FRAME_MS = 33;
+const SLOW_FOR_MS = 2000;
+
+interface RigProps {
+  room: Room;
+  boxes: Map<string, Box>;
+  activeWallId?: string | null;
+  onSlowFrames?: () => void;
+}
+
+export const CameraRig = forwardRef<SceneApi, RigProps>(function CameraRig({ room, boxes, activeWallId, onSlowFrames }, ref) {
   const controls = useRef<OrbitControlsImpl>(null);
   const camera = useThree((s) => s.camera) as THREE.OrthographicCamera;
   const size = useThree((s) => s.size);
@@ -136,6 +147,16 @@ export const CameraRig = forwardRef<SceneApi, { room: Room; boxes: Map<string, B
     boxesRef.current = boxes;
   }, [boxes]);
   const dragging = useRef(false);
+  const onSlowRef = useRef(onSlowFrames);
+  useEffect(() => {
+    onSlowRef.current = onSlowFrames;
+  });
+  /**
+   * Frame timing while orbiting: when the last frame started and finished, when the orbit next
+   * asked for one, the smoothed frame time and when it went above the limit. Time between a frame
+   * finishing and the next request is the hand resting, not the GPU, so it doesn't count.
+   */
+  const timing = useRef({ last: 0, done: 0, requested: null as number | null, avg: 0, since: null as number | null });
   const sizeRef = useRef(size);
   sizeRef.current = size;
   const frameRef = useRef(frame);
@@ -304,6 +325,29 @@ export const CameraRig = forwardRef<SceneApi, { room: Room; boxes: Map<string, B
     else tween.current = null;
   });
 
+  // Frame time while the user orbits: steadily slow frames ask for performance mode, once.
+  useFrame(() => {
+    if (!dragging.current || !onSlowRef.current) return;
+    const t = timing.current;
+    if (t.requested === null) return;
+    const now = performance.now();
+    const dt = now - t.last - Math.max(0, t.requested - Math.max(t.done, t.last));
+    t.last = now;
+    t.requested = null;
+    // Runs after this frame's render (and its paint) is over.
+    setTimeout(() => (t.done = performance.now()), 0);
+    t.avg = t.avg ? t.avg * 0.8 + dt * 0.2 : dt;
+    if (t.avg <= SLOW_FRAME_MS) {
+      t.since = null;
+      return;
+    }
+    t.since ??= now;
+    if (now - t.since >= SLOW_FOR_MS) {
+      t.since = null;
+      onSlowRef.current();
+    }
+  });
+
   // Quarter-turn animation: rotate camera and target about the room centre.
   useFrame(() => {
     const t = turn.current;
@@ -329,11 +373,14 @@ export const CameraRig = forwardRef<SceneApi, { room: Room; boxes: Map<string, B
       // Only a real drag or wheel counts as moving the view; a click to select doesn't.
       onStart={() => {
         dragging.current = true;
+        timing.current = { last: performance.now(), done: performance.now(), requested: null, avg: 0, since: null };
         turn.current = null;
         tween.current = null;
       }}
       onChange={() => {
-        if (dragging.current) touched.current = true;
+        if (!dragging.current) return;
+        touched.current = true;
+        timing.current.requested ??= performance.now();
       }}
       onEnd={() => {
         dragging.current = false;

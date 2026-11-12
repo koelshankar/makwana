@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DesignPlan } from "@/components/design/design-plan";
 import { Elevation } from "@/components/design/elevation/elevation";
 import type { SceneApi } from "@/components/three/kitchen-scene";
+import { SceneBoundary } from "@/components/three/scene-boundary";
 import { catalogue } from "@/domain/catalogue";
 import { formatINR } from "@/domain/format";
 import { placementsOnWall } from "@/domain/geometry";
@@ -34,7 +35,7 @@ const PRINT_CSS = `
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 `;
 
-/** Renders the room offscreen at a fixed size and hands back one iso snapshot. */
+/** Renders the room offscreen at a fixed size and hands back one iso snapshot ("" if 3D is unavailable). */
 function OffscreenSnapshot({ onShot }: { onShot: (url: string) => void }) {
   const project = useProjectStore((s) => s.project);
   const api = useRef<SceneApi>(null);
@@ -44,7 +45,13 @@ function OffscreenSnapshot({ onShot }: { onShot: (url: string) => void }) {
     const attempt = () => {
       if (cancelled) return;
       if (api.current && tries > 6) {
-        onShot(api.current.snapshot());
+        let url = "";
+        try {
+          url = api.current.snapshot();
+        } catch {
+          // Shown as "not available" in the document.
+        }
+        onShot(url);
         return;
       }
       tries++;
@@ -57,7 +64,9 @@ function OffscreenSnapshot({ onShot }: { onShot: (url: string) => void }) {
   }, [onShot]);
   return (
     <div aria-hidden className="no-print fixed top-0 -left-[5000px] h-[640px] w-[960px]">
-      <KitchenScene ref={api} project={project} selectedId={null} blockedIds={EMPTY} wallHeight="cut" interactive={false} />
+      <SceneBoundary onUnavailable={() => onShot("")} fallback={null}>
+        <KitchenScene ref={api} project={project} selectedId={null} blockedIds={EMPTY} wallHeight="cut" interactive={false} />
+      </SceneBoundary>
     </div>
   );
 }
@@ -101,6 +110,7 @@ export function PrintQuote() {
   const project = useProjectStore((s) => s.project);
   const handed = useProjectStore((s) => s.ui.snapshot);
   const [ownShot, setOwnShot] = useState<string | null>(null);
+  /** A data URL, "" when 3D isn't available, null while it is still being rendered. */
   const snapshot = handed ?? ownShot;
   const results = useMemo(() => runRawChecks(project, catalogue), [project]);
   const model = useMemo(() => quoteModel(project, catalogue, results), [project, results]);
@@ -114,7 +124,7 @@ export function PrintQuote() {
     document.title = `${h.quoteNumber}-V${h.version}-${(h.customerName || h.projectName).replace(/\s+/g, "-")}`;
   }, [hydrated, h.quoteNumber, h.version, h.customerName, h.projectName]);
   useEffect(() => {
-    if (!hydrated || !snapshot || ready) return;
+    if (!hydrated || snapshot === null || ready) return;
     let cancelled = false;
     void document.fonts.ready.then(() => {
       if (cancelled) return;
@@ -131,7 +141,7 @@ export function PrintQuote() {
   return (
     <div className="min-h-screen bg-[#e9e7e3] py-8 text-mk-ink print:bg-white print:py-0" data-print-ready={ready || undefined}>
       <style>{PRINT_CSS}</style>
-      {!snapshot && <OffscreenSnapshot onShot={setOwnShot} />}
+      {snapshot === null && <OffscreenSnapshot onShot={setOwnShot} />}
       <div className="no-print mx-auto mb-4 flex w-[210mm] items-center justify-between">
         <Link href="/quote" className="flex items-center gap-2 text-[13.5px] font-medium hover:underline">
           <ArrowLeft className="size-4" /> Back to the quote
@@ -191,7 +201,9 @@ export function PrintQuote() {
             // eslint-disable-next-line @next/next/no-img-element -- a data URL, not an optimisable asset
             <img src={snapshot} alt="3D view of the kitchen" className="mx-auto block max-h-[78mm] w-auto rounded-md bg-[#f1efeb]" data-print-3d />
           ) : (
-            <div className="flex h-[90mm] items-center justify-center rounded-md bg-[#f1efeb] text-mk-muted">Rendering the 3D view…</div>
+            <div className="flex h-[90mm] items-center justify-center rounded-md bg-[#f1efeb] text-mk-muted">
+              {snapshot === "" ? "3D view isn't available on this device" : "Rendering the 3D view…"}
+            </div>
           )}
         </section>
         <section className="avoid-break mt-4">
@@ -274,7 +286,7 @@ export function PrintQuote() {
         </section>
 
         <section className="avoid-break mt-6">
-          <ChecksSummary checks={model.checks} ruleSet={h.ruleSetVersion} />
+          <ChecksSummary checks={model.checks} ruleSet={h.ruleSetVersion} approvedBy={h.approvedBy} />
         </section>
 
         <section className="avoid-break mt-6 rounded-lg border border-dashed border-mk-faint p-4 text-[10px] leading-relaxed text-mk-ink-2" data-print-terms>

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { projectStore, useHydrated } from "@/store/project-store";
+import { ScreenBoundary } from "./screen-boundary";
 import { ShellSkeleton } from "./shell-skeleton";
 import { TopBar } from "./top-bar";
 
@@ -43,13 +44,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // A saved project that failed validation was replaced by the empty Mehta room: say so once.
+  useEffect(() => {
+    if (!hydrated || !projectStore.getState().ui.restoreFailed) return;
+    projectStore.getState().clearRestoreFailed();
+    toast.warning("The saved project couldn't be opened", { id: "restore-failed", description: "Started from the empty Mehta room instead." });
+  }, [hydrated]);
+
   // Nothing that reads the project renders until the saved one is restored: no flash of the seed.
   if (!hydrated) return <ShellSkeleton />;
 
   return (
-    <div className="flex h-screen min-h-[740px] min-w-[1280px] flex-col bg-mk-panel text-mk-ink">
-      <TopBar />
-      <main className="flex min-h-0 flex-1 flex-col">{children}</main>
-    </div>
+    <ScreenBoundary>
+      <div className="flex h-screen min-h-[740px] min-w-[1280px] flex-col bg-mk-panel text-mk-ink">
+        <TopBar />
+        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+      </div>
+    </ScreenBoundary>
   );
 }

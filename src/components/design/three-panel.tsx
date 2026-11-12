@@ -3,11 +3,13 @@
 import { Maximize2, Minus, Plus, RotateCcw, RotateCw, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { catalogue, getFinish, getModule } from "@/domain/catalogue";
 import { finishGroup, type FinishGroup } from "@/domain/finish-defaults";
 import type { WallHeightMode } from "@/domain/three-model";
 import type { Project } from "@/domain/types";
 import type { SceneApi, SceneGhost, ViewPreset } from "@/components/three/kitchen-scene";
+import { SceneBoundary } from "@/components/three/scene-boundary";
 import { cn } from "@/lib/utils";
 import { projectStore, useBlockedIds, useProjectStore } from "@/store/project-store";
 import { ghostWorldBox, labelOf } from "./ghost";
@@ -90,6 +92,8 @@ export function ThreePanel() {
   const activeWallId = useProjectStore((s) => s.ui.activeWallId);
   const wallHeight = useProjectStore((s) => s.ui.wallHeight);
   const customer = useProjectStore((s) => s.ui.customerView);
+  const performance = useProjectStore((s) => s.settings.performanceMode);
+  const autoSwitched = useProjectStore((s) => s.settings.performanceAutoSwitched);
   const blocked = useBlockedIds();
   const outcome = useInteraction((s) => s.outcome);
   const api = useRef<SceneApi>(null);
@@ -100,6 +104,13 @@ export function ThreePanel() {
   const notPlaced = outcome?.kind === "blocked" && outcome.project === project ? labelOf(outcome.candidate) : null;
   const wallId = activeWallId ?? project.room.walls[0]?.id;
   const { setWallHeight, setCustomerView } = projectStore.getState();
+
+  /** Slow frames while orbiting switch performance mode on, once per demo, with a toast. */
+  const onSlowFrames = useCallback(() => {
+    if (projectStore.getState().settings.performanceMode) return;
+    projectStore.getState().setPerformanceMode(true, true);
+    toast("Switched to performance mode for smoother 3D", { id: "performance-mode", description: "Turn it off in the demo menu." });
+  }, []);
 
   const onSelect = useCallback((id: string) => {
     projectStore.getState().select(id);
@@ -167,98 +178,102 @@ export function ThreePanel() {
       </header>
 
       <div className="relative min-h-0 flex-1">
-        <KitchenScene
-          ref={api}
-          project={project}
-          selectedId={customer ? null : selectedId}
-          blockedIds={blocked}
-          wallHeight={wallHeight}
-          activeWallId={wallId}
-          interactive={!customer}
-          subscribeGhost={subscribeGhost}
-          onSelect={onSelect}
-        />
-
-        {!customer && (notPlaced || selected) && (
-          <div className="pointer-events-none absolute top-3 left-4 text-[12px]">
-            {notPlaced ? (
-              <span className="num text-mk-bad">{notPlaced} · not placed</span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-mk-accent-ink">
-                <span className="size-2.5 rounded-[2px] border-[1.5px] border-mk-accent" />
-                <span className="num">{selected!.moduleCode}</span>
-              </span>
-            )}
-          </div>
-        )}
-
-        <div className="absolute top-2.5 right-3">
-          <Segmented<ViewPreset>
-            label="View"
-            value={preset}
-            options={[
-              { value: "3d", label: "3D" },
-              { value: "top", label: "Top" },
-              { value: "wall", label: `Facing ${wallId ?? ""}` },
-            ]}
-            onChange={(p) => {
-              setPreset(p);
-              api.current?.preset(p);
-            }}
+        <SceneBoundary>
+          <KitchenScene
+            ref={api}
+            project={project}
+            selectedId={customer ? null : selectedId}
+            blockedIds={blocked}
+            wallHeight={wallHeight}
+            activeWallId={wallId}
+            interactive={!customer}
+            subscribeGhost={subscribeGhost}
+            onSelect={onSelect}
+            performance={performance}
+            onSlowFrames={performance || autoSwitched ? undefined : onSlowFrames}
           />
-        </div>
 
-        <ul className={cn("pointer-events-none absolute left-4 space-y-1 text-[12px] text-mk-ink-2", customer ? "bottom-4" : "bottom-[60px]")}>
-          {items.map((i) => (
-            <li key={i.key} className="flex items-center gap-2">
-              <span className="size-3 rounded-[3px] border border-black/10" style={{ background: i.hex }} />
-              {i.label}
-            </li>
-          ))}
-          <li className="flex items-center gap-2">
-            <span className="size-3 rounded-[3px] border border-black/10 bg-[#cfcac2]" />
-            Walls, duct box, column
-          </li>
-          {blocked.size > 0 && !customer && (
-            <li className="flex items-center gap-2 text-mk-bad">
-              <span className="size-3 rounded-[3px] border border-mk-bad bg-[#e9a395]" />
-              Blocked
-            </li>
+          {!customer && (notPlaced || selected) && (
+            <div className="pointer-events-none absolute top-3 left-4 text-[12px]">
+              {notPlaced ? (
+                <span className="num text-mk-bad">{notPlaced} · not placed</span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-mk-accent-ink">
+                  <span className="size-2.5 rounded-[2px] border-[1.5px] border-mk-accent" />
+                  <span className="num">{selected!.moduleCode}</span>
+                </span>
+              )}
+            </div>
           )}
-        </ul>
 
-        <div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-xl border border-mk-line bg-mk-panel p-1 shadow-[0_2px_8px_rgba(28,27,25,0.06)]">
-          <button type="button" aria-label="Rotate left" className={btn} onClick={() => {
-              setPreset(null);
-              api.current?.rotate(-1);
-            }}>
-            <RotateCcw className="size-4" />
-          </button>
-          <button type="button" aria-label="Rotate right" className={btn} onClick={() => {
-              setPreset(null);
-              api.current?.rotate(1);
-            }}>
-            <RotateCw className="size-4" />
-          </button>
-          <span className="mx-1 h-5 w-px bg-mk-line" />
-          <button type="button" aria-label="Zoom out" className={btn} onClick={() => api.current?.zoom(0.8)}>
-            <Minus className="size-4" />
-          </button>
-          <button type="button" aria-label="Zoom in" className={btn} onClick={() => api.current?.zoom(1.25)}>
-            <Plus className="size-4" />
-          </button>
-          <span className="mx-1 h-5 w-px bg-mk-line" />
-          <button
-            type="button"
-            className="h-8 rounded-md px-2.5 text-[12.5px] font-medium whitespace-nowrap hover:bg-mk-subtle"
-            onClick={() => {
-              setPreset("3d");
-              api.current?.reset();
-            }}
-          >
-            Reset view
-          </button>
-        </div>
+          <div className="absolute top-2.5 right-3">
+            <Segmented<ViewPreset>
+              label="View"
+              value={preset}
+              options={[
+                { value: "3d", label: "3D" },
+                { value: "top", label: "Top" },
+                { value: "wall", label: `Facing ${wallId ?? ""}` },
+              ]}
+              onChange={(p) => {
+                setPreset(p);
+                api.current?.preset(p);
+              }}
+            />
+          </div>
+
+          <ul className={cn("pointer-events-none absolute left-4 space-y-1 text-[12px] text-mk-ink-2", customer ? "bottom-4" : "bottom-[60px]")}>
+            {items.map((i) => (
+              <li key={i.key} className="flex items-center gap-2">
+                <span className="size-3 rounded-[3px] border border-black/10" style={{ background: i.hex }} />
+                {i.label}
+              </li>
+            ))}
+            <li className="flex items-center gap-2">
+              <span className="size-3 rounded-[3px] border border-black/10 bg-[#cfcac2]" />
+              Walls, duct box, column
+            </li>
+            {blocked.size > 0 && !customer && (
+              <li className="flex items-center gap-2 text-mk-bad">
+                <span className="size-3 rounded-[3px] border border-mk-bad bg-[#e9a395]" />
+                Blocked
+              </li>
+            )}
+          </ul>
+
+          <div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-xl border border-mk-line bg-mk-panel p-1 shadow-[0_2px_8px_rgba(28,27,25,0.06)]">
+            <button type="button" aria-label="Rotate left" className={btn} onClick={() => {
+                setPreset(null);
+                api.current?.rotate(-1);
+              }}>
+              <RotateCcw className="size-4" />
+            </button>
+            <button type="button" aria-label="Rotate right" className={btn} onClick={() => {
+                setPreset(null);
+                api.current?.rotate(1);
+              }}>
+              <RotateCw className="size-4" />
+            </button>
+            <span className="mx-1 h-5 w-px bg-mk-line" />
+            <button type="button" aria-label="Zoom out" className={btn} onClick={() => api.current?.zoom(0.8)}>
+              <Minus className="size-4" />
+            </button>
+            <button type="button" aria-label="Zoom in" className={btn} onClick={() => api.current?.zoom(1.25)}>
+              <Plus className="size-4" />
+            </button>
+            <span className="mx-1 h-5 w-px bg-mk-line" />
+            <button
+              type="button"
+              className="h-8 rounded-md px-2.5 text-[12.5px] font-medium whitespace-nowrap hover:bg-mk-subtle"
+              onClick={() => {
+                setPreset("3d");
+                api.current?.reset();
+              }}
+            >
+              Reset view
+            </button>
+          </div>
+        </SceneBoundary>
       </div>
     </section>
   );

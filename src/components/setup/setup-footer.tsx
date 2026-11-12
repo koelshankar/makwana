@@ -9,11 +9,12 @@ import { isRoomClosed } from "@/domain/geometry";
 import { cn } from "@/lib/utils";
 import { useProjectStore, useRoomValidation } from "@/store/project-store";
 
-function Chip({ tone, children }: { tone: "ok" | "warn" | "muted"; children: React.ReactNode }) {
+/** A status chip. Only the long one (`text`, the first room issue) may truncate; it keeps its full text as a tooltip. */
+function Chip({ tone, children, text }: { tone: "ok" | "warn" | "muted"; children?: React.ReactNode; text?: string }) {
   return (
-    <span className="flex min-w-0 items-center gap-2 text-[13.5px] text-mk-ink-2">
+    <span className={cn("flex items-center gap-2 text-[13.5px] text-mk-ink-2", text ? "min-w-0" : "shrink-0 whitespace-nowrap")} title={text}>
       <span className={cn("size-2 shrink-0 rounded-full", tone === "ok" ? "bg-mk-ok" : tone === "warn" ? "bg-mk-warn" : "bg-mk-faint")} />
-      <span className="truncate">{children}</span>
+      <span className="truncate">{children ?? text}</span>
     </span>
   );
 }
@@ -43,7 +44,7 @@ export function SetupFooter() {
         <Chip tone={nFeatures ? "ok" : "muted"}>
           {nFeatures} feature{nFeatures === 1 ? "" : "s"} placed
         </Chip>
-        <Chip tone={validation.ok ? "ok" : "warn"}>{validation.ok ? "Ready for design" : validation.issues[0].message}</Chip>
+        <Chip tone={validation.ok ? "ok" : "warn"} text={validation.ok ? "Ready for design" : validation.issues[0].message} />
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <Button variant="outline" size="lg" className="h-[46px] rounded-lg px-6 text-[15px]" onClick={() => toast.success("Draft saved")}>

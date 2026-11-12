@@ -90,7 +90,8 @@ describe("workflow", () => {
     expect(canShare(flagged, raw(flagged), "flagged")).toBe(false);
     const approved = approve(sendForApproval(flagged, T, "R"), T, "M");
     expect(canShare(approved, raw(approved), "always")).toBe(true);
-    expect(canShare(sampleDesign, raw(sampleDesign), "flagged")).toBe(false); // no quote yet
+    expect(canShare(sampleDesign, raw(sampleDesign), "flagged")).toBe(true); // numbered when shared
+    expect(canShare(sampleDesign, raw(sampleDesign), "always")).toBe(false);
   });
 
   it("logs sharing and keeps entries in order", () => {

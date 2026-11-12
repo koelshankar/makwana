@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ArrowRight, Check, Copy, Download, MessageCircle, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import type { SceneApi } from "@/components/three/kitchen-scene";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,11 @@ import { canShare, whatsappMessage, type QuoteModel } from "@/domain/quote";
 import type { CheckResult } from "@/domain/types";
 import { projectStore, useProjectStore } from "@/store/project-store";
 
-/** Takes the 3D picture at the iso preset, hands it to the print page and opens it. */
+/** Gives the quote its number if it has none, takes the 3D picture at the iso preset, hands it to the print page and opens it. */
 export function useDownloadPdf(scene: RefObject<SceneApi | null>) {
   const router = useRouter();
   return () => {
+    projectStore.getState().ensureQuote();
     let shot: string | null = null;
     try {
       shot = scene.current?.snapshot() ?? null;
@@ -29,18 +30,34 @@ export function useDownloadPdf(scene: RefObject<SceneApi | null>) {
 
 function ShareDialog({ open, onOpenChange, model, onDownload }: { open: boolean; onOpenChange: (o: boolean) => void; model: QuoteModel; onDownload: () => void }) {
   const message = whatsappMessage(model, formatINR);
+  /** The clipboard API failed or is missing: the message is selected for ⌘C / Ctrl+C instead. */
+  const [manualCopy, setManualCopy] = useState(false);
+  const text = useRef<HTMLTextAreaElement>(null);
+  const change = (o: boolean) => {
+    if (!o) setManualCopy(false);
+    onOpenChange(o);
+  };
+  useEffect(() => {
+    if (!manualCopy) return;
+    text.current?.focus();
+    text.current?.select();
+  }, [manualCopy]);
+  const copied = (how: string) => {
+    toast.success("WhatsApp message copied");
+    projectStore.getState().markShared(how);
+  };
   const copy = async () => {
     try {
+      if (!navigator.clipboard?.writeText) throw new Error("No clipboard API");
       await navigator.clipboard.writeText(message);
-      toast.success("WhatsApp message copied");
     } catch {
-      toast.error("Couldn't copy: select the message and copy it instead");
+      setManualCopy(true);
       return;
     }
-    projectStore.getState().markShared("WhatsApp message copied");
+    copied("WhatsApp message copied");
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={change}>
       <DialogContent className="sm:max-w-[520px]" data-share-dialog>
         <DialogHeader>
           <DialogTitle>Share with {model.header.customerName || "the customer"}</DialogTitle>
@@ -49,7 +66,20 @@ function ShareDialog({ open, onOpenChange, model, onDownload }: { open: boolean;
             {model.header.validUntil}
           </DialogDescription>
         </DialogHeader>
-        <textarea readOnly value={message} rows={9} aria-label="WhatsApp message" className="w-full resize-none rounded-lg border border-mk-line bg-mk-canvas p-3 text-[13px] leading-relaxed outline-none" />
+        <textarea
+          ref={text}
+          readOnly
+          value={message}
+          rows={9}
+          aria-label="WhatsApp message"
+          onCopy={() => manualCopy && copied("WhatsApp message copied")}
+          className={`w-full resize-none rounded-lg border bg-mk-canvas p-3 text-[13px] leading-relaxed outline-none ${manualCopy ? "border-mk-accent ring-2 ring-mk-accent/20" : "border-mk-line"}`}
+        />
+        {manualCopy && (
+          <p className="-mt-2 text-[13px] font-medium text-mk-accent-ink" role="status" data-manual-copy>
+            Press ⌘C / Ctrl+C to copy
+          </p>
+        )}
         <DialogFooter>
           <Button
             variant="outline"
@@ -134,7 +164,17 @@ export function QuoteFooter({ model, results, scene }: { model: QuoteModel; resu
           </span>
         )}
         {!reviewing && (
-          <Button variant="outline" size="lg" className={`${big} gap-2`} disabled={!shareable} onClick={() => setSharing(true)} data-share>
+          <Button
+            variant="outline"
+            size="lg"
+            className={`${big} gap-2`}
+            disabled={!shareable}
+            onClick={() => {
+              projectStore.getState().ensureQuote();
+              setSharing(true);
+            }}
+            data-share
+          >
             <MessageCircle className="size-4" /> Share with Customer
           </Button>
         )}

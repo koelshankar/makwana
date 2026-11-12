@@ -28,7 +28,7 @@ export function ViewsPanel() {
   return (
     <section ref={containerRef} className="relative flex min-w-0 flex-1 flex-col border-r border-mk-line bg-mk-panel">
       <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-mk-line px-3">
-        <div ref={tabsRef} role="tablist" aria-label="Views" className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto rounded-xl bg-mk-subtle p-1 [scrollbar-width:none]">
+        <div ref={tabsRef} role="tablist" aria-label="Views" className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto rounded-xl bg-mk-subtle p-1 [scrollbar-width:none] max-[1439px]:[mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]">
           {[{ id: "plan", label: "Plan" }, ...walls.map((w) => ({ id: w.id, label: `Wall ${w.id}` }))].map((t) => {
             const selected = t.id === "plan" ? tab === "plan" : tab === "wall" && wall?.id === t.id;
             return (
@@ -48,7 +48,8 @@ export function ViewsPanel() {
             );
           })}
         </div>
-        <span className="num shrink-0 text-[11px] tracking-[0.12em] text-mk-faint uppercase">
+        {/* Narrow screens give the wall tabs the room; the drawing names its wall anyway. */}
+        <span className="num hidden shrink-0 text-[11px] tracking-[0.12em] text-mk-faint uppercase min-[1440px]:inline">
           {tab === "plan" ? "Plan · top view" : wall ? `Elevation · ${wall.lengthMm} × ${ceiling}` : ""}
         </span>
       </header>

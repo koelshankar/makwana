@@ -1,14 +1,8 @@
-"use client";
+import { notFound } from "next/navigation";
+import { SpikeView } from "./spike-view";
 
-// Throwaway spike: proves the world transform (corners, duct-box notch, countertop cut-outs).
-import dynamic from "next/dynamic";
-
-const Scene = dynamic(() => import("./scene"), { ssr: false });
-
+/** Throwaway spike; development builds only. */
 export default function SpikePage() {
-  return (
-    <div className="h-screen w-screen bg-neutral-100">
-      <Scene />
-    </div>
-  );
+  if (process.env.NODE_ENV === "production") notFound();
+  return <SpikeView />;
 }

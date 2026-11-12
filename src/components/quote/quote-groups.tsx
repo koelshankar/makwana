@@ -28,8 +28,8 @@ export function UnitTable({ group }: { group: QuoteGroup }) {
           <tr key={l.placementId} className="border-b border-mk-line/70 last:border-b-0" data-quote-line={l.ref}>
             <td className="num py-2.5 pl-6 font-semibold">{l.ref}</td>
             <td className="py-2.5 whitespace-nowrap text-mk-ink-2">{l.wall}</td>
-            <td className="py-2.5">
-              <span className="num mr-1.5 text-[11.5px] text-mk-muted">{l.code === "FIL" ? "" : l.code}</span>
+            <td className="py-2.5 pr-4">
+              {l.code !== "FIL" && <span className="num mr-1.5 text-[11.5px] text-mk-muted">{l.code}</span>}
               {l.description}
             </td>
             <td className="num py-2.5 pr-3 whitespace-nowrap text-mk-ink-2">{sizeText(l.size)}</td>
@@ -39,7 +39,7 @@ export function UnitTable({ group }: { group: QuoteGroup }) {
                 {l.finish.short}
               </span>
             </td>
-            <td className="py-2.5">
+            <td className="py-2.5 pr-4">
               <span className="flex flex-wrap gap-1">
                 <CostTag kind="carcass" sqft={l.carcassSqft} cost={l.carcassCost} />
                 <CostTag kind="shutter" sqft={l.shutterSqft} cost={l.shutterCost} />
@@ -82,6 +82,11 @@ export function QuoteGroups({ model }: { model: QuoteModel }) {
                     </span>
                   </span>
                   {g.note && <span className="mt-0.5 block text-[12px] text-mk-muted">{g.note}</span>}
+                  {/* Narrow screens: the group's cost tags on their own line under the name. */}
+                  <span className="mt-1.5 flex flex-wrap gap-1.5 min-[1400px]:hidden" data-group-tags="below">
+                    <CostTag kind="carcass" sqft={g.carcassSqft} cost={g.carcassCost} />
+                    <CostTag kind="shutter" sqft={g.shutterSqft} cost={g.shutterCost} />
+                  </span>
                 </span>
                 <span className="hidden gap-1.5 min-[1400px]:flex">
                   <CostTag kind="carcass" sqft={g.carcassSqft} cost={g.carcassCost} className="h-[26px] px-2 text-[11.5px]" />

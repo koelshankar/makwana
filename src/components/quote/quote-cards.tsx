@@ -110,7 +110,8 @@ export function TotalsCard({ model, editable }: { model: QuoteModel; editable: b
 
 const time = (iso: string) => {
   const d = new Date(iso);
-  return `${formatDate(iso)}, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${formatDate(iso)}, ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
 };
 
 export function ActivityLog({ entries }: { entries: ActivityEntry[] }) {
@@ -125,13 +126,19 @@ export function ActivityLog({ entries }: { entries: ActivityEntry[] }) {
           {entries.length} entr{entries.length === 1 ? "y" : "ies"}
         </span>
       </button>
-      {open && (
+      {open && !entries.length && (
+        <p className="border-t border-mk-line px-5 py-3 text-[13px] text-mk-muted">Nothing yet. Discount changes, approvals and sharing are logged here.</p>
+      )}
+      {open && entries.length > 0 && (
         <ol className="border-t border-mk-line">
           {[...entries].reverse().map((e, i) => (
             <li key={`${e.at}-${i}`} className="flex gap-4 border-b border-mk-line/70 px-5 py-2.5 text-[13px] last:border-b-0" data-activity={e.action}>
-              <span className="num w-[132px] shrink-0 text-[12px] text-mk-muted">{time(e.at)}</span>
-              <span className="w-[120px] shrink-0 text-mk-ink-2">{e.by}</span>
-              <span className="min-w-0 flex-1">{e.detail}</span>
+              {/* When and who stacked, so the detail keeps its width on 1366-wide screens. */}
+              <span className="w-[150px] shrink-0 leading-snug">
+                <span className="num block text-[12px] whitespace-nowrap text-mk-muted">{time(e.at)}</span>
+                <span className="block text-mk-ink-2">{e.by}</span>
+              </span>
+              <span className="min-w-0 flex-1 leading-snug">{e.detail}</span>
             </li>
           ))}
         </ol>

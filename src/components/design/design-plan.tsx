@@ -17,8 +17,11 @@ export const LAYER_FILL: Record<Layer, string> = { base: "#cdd8c6", tall: "#7773
 const LAYER_ORDER: Layer[] = ["tall", "base", "wall", "loft"];
 const NO_DIMS = { lines: [], inline: [] };
 
-/** Top view with every unit's footprint. Click to select; no dragging in plan. `readOnly` for the quote and print. */
-export function DesignPlan({ readOnly = false, showDims = true }: { readOnly?: boolean; showDims?: boolean }) {
+/**
+ * Top view with every unit's footprint. Click to select; no dragging in plan. `readOnly` for the
+ * quote and print; `compact` (the Quote screen's small plan) also drops dimensions and labels.
+ */
+export function DesignPlan({ readOnly = false, compact = false }: { readOnly?: boolean; compact?: boolean }) {
   const project = useProjectStore((s) => s.project);
   const liveSelected = useProjectStore((s) => s.ui.selectedPlacementId);
   const liveWall = useProjectStore((s) => s.ui.activeWallId);
@@ -74,13 +77,14 @@ export function DesignPlan({ readOnly = false, showDims = true }: { readOnly?: b
           room={room}
           frames={frames}
           outline={outline}
-          dims={showDims ? dims : NO_DIMS}
+          dims={compact ? NO_DIMS : dims}
           vb={vb}
           px={px}
           closed={isRoomClosed(room)}
           roomCentre={centre}
           selectedWallId={activeWallId}
           showMarkers={false}
+          showCeiling={!compact}
         >
           {placements.map((p) => {
             const b = boxes.get(p.id);
@@ -158,9 +162,11 @@ export function DesignPlan({ readOnly = false, showDims = true }: { readOnly?: b
                   strokeDasharray="6 4"
                   vectorEffect="non-scaling-stroke"
                 />
-                <text x={c.rect.minX + w / 2} y={c.rect.minY + h / 2} fontSize={px * 9.5} textAnchor="middle" dominantBaseline="middle" className="num" fill="#5d5a55" pointerEvents="none">
-                  {c.applianceId === "sink" ? "SINK" : "HOB"} {spec.cutOut!.widthMm}×{spec.cutOut!.depthMm}
-                </text>
+                {!compact && (
+                  <text x={c.rect.minX + w / 2} y={c.rect.minY + h / 2} fontSize={px * 9.5} textAnchor="middle" dominantBaseline="middle" className="num" fill="#5d5a55" pointerEvents="none">
+                    {c.applianceId === "sink" ? "SINK" : "HOB"} {spec.cutOut!.widthMm}×{spec.cutOut!.depthMm}
+                  </text>
+                )}
               </g>
             );
           })}

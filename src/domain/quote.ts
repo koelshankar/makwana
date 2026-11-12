@@ -115,10 +115,10 @@ export function approvalLabel(r: CheckResult, cat?: Catalogue): string {
 
 /**
  * Whether the quote may go to the customer: once approved; or, in "only when flagged" mode, a
- * draft with nothing that needs approval.
+ * draft with nothing that needs approval (sharing gives it its number if it has none yet).
  */
 export function canShare(project: Project, results: CheckResult[], mode: ApprovalMode): boolean {
-  if (!project.quote || results.some((r) => r.status === "blocked")) return false;
+  if (results.some((r) => r.status === "blocked")) return false;
   if (project.status === "approved") return true;
   return mode === "flagged" && approvalItems(results).length === 0;
 }

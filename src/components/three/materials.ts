@@ -72,6 +72,12 @@ export function fadingEdgeMaterial(wallId: string): THREE.LineBasicMaterial {
   return m;
 }
 
+/** Performance mode hides the edge lines. Their materials are shared, so this applies to every scene. */
+export function setEdgeLines(on: boolean) {
+  edgeMaterial.visible = on;
+  for (const m of fadingEdges.values()) m.visible = on;
+}
+
 // ---------------------------------------------------------------------------
 // Geometry
 

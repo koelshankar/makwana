@@ -16,7 +16,7 @@ import type { Project } from "@/domain/types";
 import { ZONES } from "@/domain/zones";
 import { worldBoxes } from "@/store/project-store";
 import { CameraRig, type SceneApi } from "./camera-rig";
-import { edgeMaterial, extrudedGeometry, M, materialFor } from "./materials";
+import { edgeMaterial, extrudedGeometry, M, materialFor, setEdgeLines } from "./materials";
 import { GhostBox, UnitOutline, type SceneGhost } from "./overlays";
 import { RoomMesh } from "./room-mesh";
 import { ApplianceMesh, FittedMesh, UnitMesh, type Pose } from "./unit-mesh";
@@ -25,6 +25,13 @@ export type { SceneApi, ViewPreset } from "./camera-rig";
 export type { SceneGhost } from "./overlays";
 
 const BACKGROUND = "#f1efeb";
+
+// React Three Fiber 9 still creates a THREE.Clock, which three r183+ reports as deprecated once
+// per canvas. Drop that one message (nothing we can change here); pass everything else through.
+THREE.setConsoleFunction((type, message, ...params) => {
+  if (message.startsWith("THREE.Clock: This module has been deprecated")) return;
+  console[type](message, ...params);
+});
 
 const poseOf = (frame: WallFrame, offsetMm: number): Pose => {
   const o = wallToWorld(frame, offsetMm, 0);
@@ -85,6 +92,16 @@ function useVersion(value: unknown): number {
   return state.value === value ? state.version : state.version + 1;
 }
 
+/** Edge lines on or off for performance mode, then one re-render. */
+function EdgeLines({ on }: { on: boolean }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    setEdgeLines(on);
+    invalidate();
+  }, [on, invalidate]);
+  return null;
+}
+
 /** Re-renders once whenever the inputs change (frameloop="demand"). */
 function Invalidate({ deps }: { deps: unknown[] }) {
   const invalidate = useThree((s) => s.invalidate);
@@ -104,10 +121,14 @@ export interface KitchenSceneProps {
   /** Delivers the drag ghost's world box whenever it changes; the ghost is moved, not re-rendered. */
   subscribeGhost?: (cb: (g: SceneGhost | null) => void) => () => void;
   onSelect?: (id: string) => void;
+  /** Performance mode: device pixel ratio 1, no contact shadows, no edge lines. */
+  performance?: boolean;
+  /** Called when frames stay slow while the view is being orbited (see CameraRig). */
+  onSlowFrames?: () => void;
 }
 
 export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function KitchenScene(
-  { project, selectedId, blockedIds, wallHeight = "cut", activeWallId, interactive = true, subscribeGhost, onSelect },
+  { project, selectedId, blockedIds, wallHeight = "cut", activeWallId, interactive = true, subscribeGhost, onSelect, performance = false, onSlowFrames },
   ref,
 ) {
   const frames = useMemo(() => new Map(wallFrames(project.room).map((f) => [f.wallId, f])), [project.room]);
@@ -138,7 +159,7 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
     <Canvas
       orthographic
       frameloop="demand"
-      dpr={[1, 2]}
+      dpr={performance ? 1 : [1, 2]}
       camera={{ position: [-8, 9, 12], zoom: 80, near: 0.05, far: 100 }}
       gl={{ antialias: true }}
       onPointerMissed={() => setHoverId(null)}
@@ -162,7 +183,8 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
         return f ? <ApplianceMesh key={a.id} id={a.id} applianceId={a.applianceId} baseFinishId={baseFinishId} pose={poseOf(f, a.offsetMm)} {...handlers} /> : null;
       })}
       <Countertop project={project} />
-      <Shadows project={project} />
+      {!performance && <Shadows project={project} />}
+      <EdgeLines on={!performance} />
       {interactive &&
         [...blockedIds].map((id) => {
           const box = boxes.get(id);
@@ -171,8 +193,8 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
       {interactive && selected && boxes.get(selected) && <UnitOutline box={boxes.get(selected)!} kind="selected" shell={!blockedIds.has(selected)} />}
       {hover && boxes.get(hover) && <UnitOutline box={boxes.get(hover)!} kind="hover" />}
       {subscribeGhost && <GhostBox subscribe={subscribeGhost} />}
-      <Invalidate deps={[project, selected, hover, blockedIds, wallHeight, interactive]} />
-      <CameraRig ref={ref} room={project.room} boxes={boxes} activeWallId={activeWallId} />
+      <Invalidate deps={[project, selected, hover, blockedIds, wallHeight, interactive, performance]} />
+      <CameraRig ref={ref} room={project.room} boxes={boxes} activeWallId={activeWallId} onSlowFrames={onSlowFrames} />
     </Canvas>
   );
 });

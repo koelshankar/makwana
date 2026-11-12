@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { type RefObject } from "react";
 import { DesignPlan } from "@/components/design/design-plan";
 import type { SceneApi } from "@/components/three/kitchen-scene";
+import { SceneBoundary } from "@/components/three/scene-boundary";
 import type { QuoteModel } from "@/domain/quote";
 import { useProjectStore } from "@/store/project-store";
 import { ChecksSummary, Swatch } from "./quote-parts";
@@ -27,6 +28,7 @@ function Card({ label, children, className }: { label: string; children: React.R
 /** Left column: the final design in 3D and plan, and what it is made of. */
 export function QuoteSide({ model, scene }: { model: QuoteModel; scene: RefObject<SceneApi | null> }) {
   const project = useProjectStore((s) => s.project);
+  const performance = useProjectStore((s) => s.settings.performanceMode);
   const s = model.summary;
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex gap-4 border-b border-mk-line py-2.5 text-[14px] last:border-b-0">
@@ -37,20 +39,22 @@ export function QuoteSide({ model, scene }: { model: QuoteModel; scene: RefObjec
   return (
     <aside className="flex flex-col gap-4">
       <Card label="3D · Final design" className="h-[268px] bg-[#f1efeb]">
-        <div className="absolute inset-0" data-quote-3d>
-          <KitchenScene ref={scene} project={project} selectedId={null} blockedIds={EMPTY} wallHeight="cut" interactive={false} />
-        </div>
-        <button
-          type="button"
-          onClick={() => scene.current?.reset()}
-          className="absolute right-3 bottom-3 rounded-lg border border-mk-line bg-mk-panel px-2.5 py-1 text-[12px] font-medium shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:bg-mk-subtle"
-        >
-          Reset view
-        </button>
+        <SceneBoundary>
+          <div className="absolute inset-0" data-quote-3d>
+            <KitchenScene ref={scene} project={project} selectedId={null} blockedIds={EMPTY} wallHeight="cut" interactive={false} performance={performance} />
+          </div>
+          <button
+            type="button"
+            onClick={() => scene.current?.reset()}
+            className="absolute right-3 bottom-3 rounded-lg border border-mk-line bg-mk-panel px-2.5 py-1 text-[12px] font-medium shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:bg-mk-subtle"
+          >
+            Reset view
+          </button>
+        </SceneBoundary>
       </Card>
       <Card label={`Plan · ${s.walls} walls`} className="h-[220px] bg-mk-panel">
         <div className="absolute inset-0 flex pt-6" data-quote-plan>
-          <DesignPlan readOnly showDims={false} />
+          <DesignPlan readOnly compact />
         </div>
       </Card>
       <div className="px-1">
@@ -70,7 +74,7 @@ export function QuoteSide({ model, scene }: { model: QuoteModel; scene: RefObjec
         )}
       </div>
       <div className="px-1">
-        <ChecksSummary checks={model.checks} />
+        <ChecksSummary checks={model.checks} approvedBy={model.header.approvedBy} />
       </div>
     </aside>
   );

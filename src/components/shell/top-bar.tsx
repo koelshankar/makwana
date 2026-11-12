@@ -3,9 +3,15 @@
 import { CheckIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import { toast } from "sonner";
+import { useInteraction } from "@/components/design/interaction";
+import { useSetupUi } from "@/components/setup/setup-ui";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -102,70 +108,119 @@ function Stepper() {
   );
 }
 
+/** View state outside the project store: drag and check highlights, Room Setup selection and tool. */
+function resetViewState() {
+  useInteraction.setState(useInteraction.getInitialState(), true);
+  useSetupUi.setState(useSetupUi.getInitialState(), true);
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+
+function ResetDialog({ open, onOpenChange, onReset }: { open: boolean; onOpenChange: (o: boolean) => void; onReset: () => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[440px]" data-reset-dialog>
+        <DialogHeader>
+          <DialogTitle>Reset the demo?</DialogTitle>
+          <DialogDescription>
+            This clears the current project and its quote, and starts again from the empty Mehta room as Rohan Desai. Quote numbers start again at 0147.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={onReset} data-confirm-reset>
+            Reset demo
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DemoMenu({ preparedBy, user }: { preparedBy: string; user: string }) {
   const router = useRouter();
-  const { role, approvalMode } = useProjectStore((s) => s.settings);
-  const { setRole, setApprovalMode } = projectStore.getState();
+  const { role, approvalMode, performanceMode } = useProjectStore((s) => s.settings);
+  const { setRole, setApprovalMode, setPerformanceMode } = projectStore.getState();
+  const [confirmReset, setConfirmReset] = useState(false);
   const load = (project: Project, label: string) => {
     projectStore.getState().loadProject(project);
+    resetViewState();
     router.push("/setup");
     toast.success(label);
   };
+  const reset = () => {
+    projectStore.getState().resetDemo();
+    resetViewState();
+    setConfirmReset(false);
+    router.push("/setup");
+    toast.success("Demo reset: empty Mehta room");
+  };
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label="Demo menu"
-            className="flex size-10 items-center justify-center rounded-full bg-mk-subtle text-[13px] font-semibold text-mk-ink-2 outline-none hover:bg-mk-line focus-visible:ring-2 focus-visible:ring-mk-accent"
-          />
-        }
-      >
-        {initials(user)}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Demo</DropdownMenuLabel>
-          <DropdownMenuItem onClick={() => load(newProject, "Started a new, empty project")}>New project (empty)</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => load(emptyMehta, "Loaded the Mehta room")}>Load Mehta room</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => load(sampleDesign, "Loaded the sample design")}>Load sample design</DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Role</DropdownMenuLabel>
-          {role === "salesperson" ? (
-            <DropdownMenuItem
-              onClick={() => {
-                setRole("manager");
-                toast(`Now viewing as ${MANAGER_NAME}`);
-              }}
-            >
-              Switch to Manager ({MANAGER_NAME})
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Demo menu"
+              className="flex size-10 items-center justify-center rounded-full bg-mk-subtle text-[13px] font-semibold text-mk-ink-2 outline-none hover:bg-mk-line focus-visible:ring-2 focus-visible:ring-mk-accent"
+            />
+          }
+        >
+          {initials(user)}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Demo</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => load(newProject, "Started a new, empty project")}>New project (empty)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => load(emptyMehta, "Loaded the Mehta room")}>Load Mehta room</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => load(sampleDesign, "Loaded the sample design")}>Load sample design</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setConfirmReset(true)} className="text-mk-bad" data-reset-demo>
+              Reset demo…
             </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem
-              onClick={() => {
-                setRole("salesperson");
-                toast(`Now viewing as ${preparedBy}`);
-              }}
-            >
-              Switch to Salesperson ({preparedBy})
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Manager approval</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={approvalMode} onValueChange={(v) => setApprovalMode(v as ApprovalMode)}>
-            <DropdownMenuRadioItem value="always">Always</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="flagged">Only when flagged</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem disabled>Undo ⌘Z · Redo ⇧⌘Z</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Role</DropdownMenuLabel>
+            {role === "salesperson" ? (
+              <DropdownMenuItem
+                onClick={() => {
+                  setRole("manager");
+                  toast(`Now viewing as ${MANAGER_NAME}`);
+                }}
+              >
+                Switch to Manager ({MANAGER_NAME})
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => {
+                  setRole("salesperson");
+                  toast(`Now viewing as ${preparedBy}`);
+                }}
+              >
+                Switch to Salesperson ({preparedBy})
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Manager approval</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={approvalMode} onValueChange={(v) => setApprovalMode(v as ApprovalMode)}>
+              <DropdownMenuRadioItem value="always">Always</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="flagged">Only when flagged</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem checked={performanceMode} onCheckedChange={(on) => setPerformanceMode(on)} data-performance-mode>
+            Performance mode (simpler 3D)
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled>Undo ⌘Z · Redo ⇧⌘Z</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ResetDialog open={confirmReset} onOpenChange={setConfirmReset} onReset={reset} />
+    </>
   );
 }
 

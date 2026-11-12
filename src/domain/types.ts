@@ -144,7 +144,7 @@ export type ProjectStatus = "draft" | "pending_approval" | "approved";
 
 export type KitchenType = "closed" | "open" | "semi-open";
 
-/** Identity of the quote for a project, assigned when it first reaches the Quote screen. */
+/** Identity of the quote for a project, assigned when it is first sent for approval, shared or downloaded. */
 export interface QuoteInfo {
   /** e.g. "MMK-AND-2026-0147". */
   number: string;
@@ -190,7 +190,7 @@ export interface Project {
   appliances: AppliancePlacement[];
   discountPct: number;
   status: ProjectStatus;
-  /** Absent until the project first reaches the Quote screen. */
+  /** Absent until the quote is first sent for approval, shared or downloaded. */
   quote?: QuoteInfo;
   /** Newest last. Absent means no entries yet. */
   activity?: ActivityEntry[];

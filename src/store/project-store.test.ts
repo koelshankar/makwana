@@ -3,7 +3,7 @@ import { placementsOnWall } from "@/domain/geometry";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import { unit } from "@/domain/testing";
 import type { ModulePlacement } from "@/domain/types";
-import { createProjectStore, PERSIST_KEY, PERSIST_VERSION, type NewModule } from "./project-store";
+import { createProjectStore, initialSettings, initialUi, PERSIST_KEY, PERSIST_VERSION, type NewModule } from "./project-store";
 
 /** A placement without an id, so the store assigns one. */
 function draft(m: ModulePlacement): NewModule {
@@ -133,6 +133,30 @@ describe("persistence", () => {
     const b = createProjectStore(sampleDesign, mem.storage);
     await b.persist.rehydrate();
     expect(b.getState().project.customerName).toBe("Priya Shah");
+  });
+
+  it("loads the empty Mehta room and flags it when the save fails validation or isn't JSON", async () => {
+    for (const raw of [
+      JSON.stringify({ version: PERSIST_VERSION, state: { project: { ...sampleDesign, modules: [{ id: "x" }] }, settings: { role: "manager" } } }),
+      "{not json",
+    ]) {
+      const mem = memoryStorage();
+      mem.data.set(PERSIST_KEY, raw);
+      const store = createProjectStore(sampleDesign, mem.storage);
+      await store.persist.rehydrate();
+      expect(store.persist.hasHydrated()).toBe(true);
+      expect(store.getState().project).toEqual(emptyMehta);
+      expect(store.getState().ui.restoreFailed).toBe(true);
+    }
+  });
+
+  it("keeps valid saved settings field by field", async () => {
+    const mem = memoryStorage();
+    mem.data.set(PERSIST_KEY, JSON.stringify({ version: PERSIST_VERSION, state: { project: emptyMehta, settings: { role: "manager", nextQuoteSeq: "x", performanceMode: true } } }));
+    const store = createProjectStore(sampleDesign, mem.storage);
+    await store.persist.rehydrate();
+    expect(store.getState().settings).toEqual({ ...initialSettings, role: "manager", performanceMode: true });
+    expect(store.getState().ui.restoreFailed).toBe(false);
   });
 
   it("falls back to the seed when the stored version doesn't match", async () => {
@@ -328,6 +352,42 @@ describe("quote workflow in the store", () => {
     store.getState().ensureQuote();
     expect(store.getState().settings.nextQuoteSeq).toBe(148);
     expect(store.getState().past).toHaveLength(0);
+  });
+
+  it("has no quote number until it is sent for approval; then 0147", () => {
+    const store = createProjectStore(sampleDesign, undefined, clock);
+    store.getState().setDiscount(8);
+    expect(store.getState().project.quote).toBeUndefined();
+    store.getState().sendForApproval();
+    expect(store.getState().project.quote!.number).toBe("MMK-AND-2026-0147");
+    expect(store.getState().project.status).toBe("pending_approval");
+    expect(store.getState().settings.nextQuoteSeq).toBe(148);
+  });
+
+  it("loading the sample design doesn't use a quote number", () => {
+    const store = createProjectStore(emptyMehta, undefined, clock);
+    store.getState().loadProject(sampleDesign);
+    expect(store.getState().project.quote).toBeUndefined();
+    expect(store.getState().settings.nextQuoteSeq).toBe(147);
+  });
+
+  it("reset demo: empty Mehta room, default settings and view, no history", () => {
+    const store = quoted();
+    const s = () => store.getState();
+    s().setDiscount(8);
+    s().setRole("manager");
+    s().setApprovalMode("flagged");
+    s().setPerformanceMode(true, true);
+    s().setWallHeight("full");
+    s().select("m-hob");
+    s().resetDemo();
+    expect(s().project).toEqual(emptyMehta);
+    expect(s().settings).toEqual(initialSettings);
+    expect(s().settings).toMatchObject({ role: "salesperson", approvalMode: "always", nextQuoteSeq: 147 });
+    expect(s().ui).toEqual(initialUi);
+    expect(s().ui.wallHeight).toBe("cut");
+    expect(s().past).toHaveLength(0);
+    expect(s().future).toHaveLength(0);
   });
 
   it("logs discount changes; above 5% needs approval", () => {

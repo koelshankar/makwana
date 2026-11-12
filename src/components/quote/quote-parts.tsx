@@ -57,7 +57,8 @@ export function IncludedBadge() {
 }
 
 /** All checks passed, or the items that need approval. */
-export function ChecksSummary({ checks, ruleSet }: { checks: QuoteModel["checks"]; ruleSet?: string }) {
+/** `approvedBy` once the manager has approved: the items read as approved, not as still needing it. */
+export function ChecksSummary({ checks, ruleSet, approvedBy }: { checks: QuoteModel["checks"]; ruleSet?: string; approvedBy?: string }) {
   if (!checks.approvals.length) {
     return (
       <span className="inline-flex h-[32px] items-center gap-2 rounded-full bg-mk-ok-soft px-3.5 text-[13px] font-medium text-mk-ok" data-quote-checks="ok">
@@ -68,12 +69,14 @@ export function ChecksSummary({ checks, ruleSet }: { checks: QuoteModel["checks"
   }
   return (
     <div className="rounded-xl bg-[#e7effc] px-3.5 py-2.5 text-[13px] text-[#2a5bb8]" data-quote-checks="approval">
-      <div className="font-medium">{ruleSet ? `Checked against rule set ${ruleSet} — needs approval:` : "Needs manager approval"}</div>
+      <div className="font-medium">
+        {ruleSet ? `Checked against rule set ${ruleSet} — ${approvedBy ? `approved by ${approvedBy}` : "needs approval"}:` : approvedBy ? `Approved by ${approvedBy}` : "Needs manager approval"}
+      </div>
       <ul className="mt-1 space-y-0.5">
         {checks.approvals.map((a) => (
           <li key={a.message} className="flex gap-2">
             <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-[#2f6bd8]" />
-            {a.label}
+            {approvedBy ? a.label.replace(/ — needs approval$/, "") : a.label}
           </li>
         ))}
       </ul>

@@ -52,6 +52,8 @@ export interface PlanBaseProps {
   dragging?: { featureId: string; offset: number; valid: boolean } | null;
   /** Numbered markers with labels next to each feature. */
   showMarkers?: boolean;
+  /** The "CEILING 2850" label in the middle of a closed room. */
+  showCeiling?: boolean;
   onWallClick?: (frame: WallFrame, e: React.MouseEvent) => void;
   onFeaturePointerDown?: (f: Feature, e: React.PointerEvent) => void;
   /** Drawn on the floor, under walls and features (e.g. unit footprints). */
@@ -72,6 +74,7 @@ export function PlanBase({
   hoverWallId = null,
   dragging: drag = null,
   showMarkers = true,
+  showCeiling = true,
   onWallClick,
   onFeaturePointerDown,
   children,
@@ -349,7 +352,7 @@ export function PlanBase({
       })}
 
       {/* Ceiling label */}
-      {closed && (
+      {closed && showCeiling && (
         <text x={roomCentre.x} y={roomCentre.y} textAnchor="middle" fontSize={font(11)} className="num" fill={C.faint} letterSpacing={font(1.2)} pointerEvents="none">
           CEILING {mm(ceiling)}
         </text>
