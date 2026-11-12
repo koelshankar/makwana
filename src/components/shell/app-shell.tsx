@@ -57,11 +57,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // A saved project that failed validation was replaced by the empty Mehta room: say so once.
+  // The saved project was replaced on load: say so once, and why.
   useEffect(() => {
-    if (!hydrated || !projectStore.getState().ui.restoreFailed) return;
-    projectStore.getState().clearRestoreFailed();
-    toast.warning("The saved project couldn't be opened", { id: "restore-failed", description: "Started from the empty Mehta room instead." });
+    const notice = hydrated ? projectStore.getState().ui.restoreNotice : null;
+    if (!notice) return;
+    projectStore.getState().clearRestoreNotice();
+    if (notice === "unreadable") {
+      toast.warning("The saved project couldn't be opened", { id: "restore-notice", description: "Started from the empty Mehta room instead." });
+    } else {
+      toast.warning("The saved project is from an older version of the demo", {
+        id: "restore-notice",
+        description: "Started from the sample design instead. Quote numbers carry on from where they were.",
+      });
+    }
   }, [hydrated]);
 
   // Nothing that reads the project renders until the saved one is restored: no flash of the seed.

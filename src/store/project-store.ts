@@ -69,8 +69,12 @@ export interface UiState {
   snapshot: string | null;
   /** Set when an edit sends a pending or approved quote back to draft, for the toast. */
   returnedToDraft: { version: number; n: number } | null;
-  /** The saved project couldn't be used and the empty Mehta room was loaded instead, for the toast. */
-  restoreFailed: boolean;
+  /**
+   * Why the saved project was replaced on load, for the toast: `unreadable` (failed validation or
+   * restoring threw; the empty Mehta room was loaded) or `old-version` (saved by another version of
+   * the app; the sample design was loaded). Null when the save was used as it was.
+   */
+  restoreNotice: RestoreNotice | null;
 }
 
 /**
@@ -90,6 +94,8 @@ export interface Settings {
 
 export type Role = "salesperson" | "manager";
 
+export type RestoreNotice = "unreadable" | "old-version";
+
 export const initialSettings: Settings = {
   role: "salesperson",
   approvalMode: "always",
@@ -108,7 +114,7 @@ export const initialUi: UiState = {
   customerView: false,
   snapshot: null,
   returnedToDraft: null,
-  restoreFailed: false,
+  restoreNotice: null,
 };
 
 export interface ProjectState {
@@ -187,7 +193,7 @@ export interface ProjectState {
   setSnapshot: (dataUrl: string | null) => void;
   /** `auto` marks the one-time automatic switch after slow frames. */
   setPerformanceMode: (on: boolean, auto?: boolean) => void;
-  clearRestoreFailed: () => void;
+  clearRestoreNotice: () => void;
   /** Selects a unit and makes its wall the active elevation. */
   select: (id: string | null) => void;
   /** Shows a wall's elevation. */
@@ -291,6 +297,9 @@ export const PERSIST_KEY = "makwana:project";
 export const PERSIST_VERSION = 2;
 
 type Saved = Pick<ProjectState, "project" | "settings">;
+
+/** What migrate hands to merge: a save from another version, already replaced by the seed. */
+type Migrated = Saved & { replaced?: true };
 
 /** JSON storage where an unreadable save comes back as an unusable one, so `merge` replaces it. */
 function safeJSONStorage(storage: () => StateStorage): PersistStorage<Saved> {
@@ -430,7 +439,7 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           recoverFromRestoreError: () =>
             set((s) => {
               s.project = emptyMehta;
-              s.ui = { ...initialUi, restoreFailed: true };
+              s.ui = { ...initialUi, restoreNotice: "unreadable" };
               s.past = [];
               s.future = [];
               s.restoreErrored = true;
@@ -682,9 +691,9 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
               s.settings.performanceMode = on;
               if (auto) s.settings.performanceAutoSwitched = true;
             }),
-          clearRestoreFailed: () =>
+          clearRestoreNotice: () =>
             set((s) => {
-              s.ui.restoreFailed = false;
+              s.ui.restoreNotice = null;
             }),
           select: selectPlacement,
           showWall: (wallId) =>
@@ -720,16 +729,19 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
         // screen. Older saves have no settings: keep the defaults for whatever is missing.
         merge: (persisted, current) => {
           if (persisted === undefined) return current;
-          const p = (typeof persisted === "object" && persisted !== null ? persisted : {}) as Partial<Record<keyof Saved, unknown>>;
+          const p = (typeof persisted === "object" && persisted !== null ? persisted : {}) as Partial<Record<keyof Migrated, unknown>>;
           const settings = restoreSettings(p.settings, current.settings);
-          if (isUsableProject(p.project, catalogue)) return { ...current, project: p.project, settings };
-          return { ...current, project: emptyMehta, settings, ui: { ...current.ui, restoreFailed: true } };
+          if (isUsableProject(p.project, catalogue)) {
+            return p.replaced ? { ...current, project: p.project, settings, ui: { ...current.ui, restoreNotice: "old-version" } } : { ...current, project: p.project, settings };
+          }
+          return { ...current, project: emptyMehta, settings, ui: { ...current.ui, restoreNotice: "unreadable" } };
         },
         // A stored project from another version may not match today's types: start from the seed,
-        // but keep the quote counter, so no quote number is ever issued twice.
-        migrate: (persisted): Saved => {
+        // but keep the quote counter, so no quote number is ever issued twice. `replaced` tells
+        // merge to flag it for the toast (it is not saved: partialize keeps project and settings).
+        migrate: (persisted): Migrated => {
           const old = (typeof persisted === "object" && persisted !== null ? persisted : {}) as { settings?: unknown };
-          return { project: initial, settings: { ...initialSettings, nextQuoteSeq: restoreSettings(old.settings, initialSettings).nextQuoteSeq } };
+          return { project: initial, settings: { ...initialSettings, nextQuoteSeq: restoreSettings(old.settings, initialSettings).nextQuoteSeq }, replaced: true };
         },
         // Anything that throws while restoring (storage, migrate, merge) would leave persist's
         // hydrated flag false and the screens on the skeleton for good: load the empty Mehta room.

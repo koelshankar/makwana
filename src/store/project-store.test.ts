@@ -146,7 +146,7 @@ describe("persistence", () => {
       await store.persist.rehydrate();
       expect(store.persist.hasHydrated()).toBe(true);
       expect(store.getState().project).toEqual(emptyMehta);
-      expect(store.getState().ui.restoreFailed).toBe(true);
+      expect(store.getState().ui.restoreNotice).toBe("unreadable");
     }
   });
 
@@ -156,7 +156,7 @@ describe("persistence", () => {
     const store = createProjectStore(sampleDesign, mem.storage);
     await store.persist.rehydrate();
     expect(store.getState().settings).toEqual({ ...initialSettings, role: "manager", performanceMode: true });
-    expect(store.getState().ui.restoreFailed).toBe(false);
+    expect(store.getState().ui.restoreNotice).toBeNull();
   });
 
   it("falls back to the seed when the stored version doesn't match", async () => {
@@ -165,6 +165,11 @@ describe("persistence", () => {
     const store = createProjectStore(sampleDesign, mem.storage);
     await store.persist.rehydrate();
     expect(store.getState().project).toEqual(sampleDesign);
+    expect(store.getState().ui.restoreNotice).toBe("old-version");
+    // The flag is for the toast only: it isn't saved, and the next save is the current version.
+    const saved = JSON.parse(mem.data.get(PERSIST_KEY)!);
+    expect(saved.version).toBe(PERSIST_VERSION);
+    expect(Object.keys(saved.state)).toEqual(["project", "settings"]);
   });
 
   it("restoring that throws falls back to the empty Mehta room with the toast flag, never a stuck skeleton (#9)", async () => {
@@ -177,7 +182,7 @@ describe("persistence", () => {
     expect(store.persist.hasHydrated()).toBe(false); // zustand's own flag stays false after an error…
     expect(isRestored(store)).toBe(true); // …so the screens use this instead
     expect(store.getState().project).toEqual(emptyMehta);
-    expect(store.getState().ui.restoreFailed).toBe(true);
+    expect(store.getState().ui.restoreNotice).toBe("unreadable");
     // Loading a project afterwards doesn't put the screens back on the skeleton.
     store.getState().loadProject(sampleDesign);
     expect(isRestored(store)).toBe(true);
@@ -191,7 +196,7 @@ describe("persistence", () => {
     await restoreSavedProject(store);
     expect(isRestored(store)).toBe(true);
     expect(store.getState().project).toEqual(emptyMehta);
-    expect(store.getState().ui.restoreFailed).toBe(true);
+    expect(store.getState().ui.restoreNotice).toBe("unreadable");
   });
 
   it("keeps the quote counter when the save version changes (#7)", async () => {

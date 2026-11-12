@@ -121,6 +121,29 @@ test.describe("#4 second tab", () => {
   });
 });
 
+test.describe("#7 save from another version", () => {
+  test("says the saved project was replaced, loads the sample design and keeps the quote counter", async ({ page }) => {
+    await open(page, "/setup");
+    await page.evaluate(
+      ([key, version]) =>
+        localStorage.setItem(key, JSON.stringify({ version, state: { project: { broken: true }, settings: { nextQuoteSeq: 153 } } })),
+      [PERSIST_KEY, PERSIST_VERSION - 1] as const,
+    );
+    await page.goto("/quote");
+    await expect(page.getByText("The saved project is from an older version of the demo")).toBeVisible();
+    await expect(page.getByText("Started from the sample design instead.", { exact: false })).toBeVisible();
+    await expect(page.locator("[data-quote-title]")).toHaveText("Draft quote · Version 1");
+    await page.getByRole("button", { name: "Send for Approval" }).click();
+    await expect(page.locator("[data-quote-title]")).toContainText("MMK-AND-2026-0153");
+
+    // Said once: the save is now the current version, so a reload restores it quietly.
+    await page.reload();
+    await expect(page.locator("[data-quote-title]")).toContainText("MMK-AND-2026-0153");
+    await page.waitForTimeout(500); // the toast would be up by now
+    await expect(page.getByText("The saved project is from an older version of the demo")).toHaveCount(0);
+  });
+});
+
 test.describe("#8 discount field", () => {
   test("clearing the field keeps the old discount", async ({ page }) => {
     await open(page, "/quote");

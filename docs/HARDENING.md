@@ -12,7 +12,7 @@ Branch: `hardening-1` (from `main` at `6a9cd17`). One commit per finding. Not me
 | 4 | Demo risk | Two tabs overwrote each other; duplicate quote numbers | Fixed |
 | 5 | Demo risk | Print page had no error page | Fixed |
 | 6 | Demo risk | Customer/site/name/kitchen type edits kept a quote approved | Fixed |
-| 7 | Demo risk | Quote counter reset on save-version change; silent failed saves | Fixed (gap below) |
+| 7 | Demo risk | Quote counter reset on save-version change; silent failed saves | Fixed |
 | 8 | Minor | Empty discount field meant 0% | Fixed |
 | 9 | Minor | A restore error left the loading skeleton up for good | Fixed |
 | 10 | Minor | PDF waited forever for the 3D picture | Fixed |
@@ -26,7 +26,7 @@ Branch: `hardening-1` (from `main` at `6a9cd17`). One commit per finding. Not me
 - **#4** BroadcastChannel tab guard (`src/lib/tab-guard.ts`). The newer tab shows "This demo is open in another tab." Tests: unit + e2e.
 - **#5** `app/error.tsx` and `app/global-error.tsx` use the shared error screen. Test: none (no way to force a crash); build passes.
 - **#6** `designChanged` includes name, customerName, siteAddress and kitchenType. Tests: domain + store unit, e2e.
-- **#7** `migrate` keeps `nextQuoteSeq`. `guardedStorage` reports the first failed save; the shell shows a toast. Test: store unit.
+- **#7** `migrate` keeps `nextQuoteSeq`. `guardedStorage` reports the first failed save; the shell shows a toast. Pass 2: `migrate` marks the replaced save and `merge` sets `ui.restoreNotice = "old-version"` (was the boolean `restoreFailed`, now `"unreadable" | "old-version" | null`). The shell shows "The saved project is from an older version of the demo — Started from the sample design instead. Quote numbers carry on from where they were." once. Tests: store unit, e2e.
 - **#8** `parseDiscountInput` returns null for empty or non-numeric text. Tests: unit + e2e.
 - **#9** `onRehydrateStorage` error loads the empty Mehta room. Screens wait on `isRestored()`. Test: store unit.
 - **#10** `snapshotStep` gives up after 3 s and prints without the picture. Test: unit.
@@ -56,7 +56,6 @@ Checked in the code, then measured in Chrome against the production build at 136
 - D5: after approval, the Totals discount note still reads "above 5% · needs approval". A presenter would see it right after approving. Fix: pass the approval to `TotalsCard` and read "above 5% · approved by Store Manager".
 - The section 6 and 7 Playwright tests are not written.
 - #1: install, build and run `npm start` once offline on the demo laptop.
-- #7 gap: a save-version change still replaces the saved project with the sample design without a toast.
 - Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
 
 ## Decisions
