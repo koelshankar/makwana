@@ -101,6 +101,7 @@ function ShareDialog({ open, onOpenChange, model, onDownload }: { open: boolean;
 }
 
 function SendBackDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const preparedBy = useProjectStore((s) => s.project.preparedBy);
   const [comment, setComment] = useState("");
   const ok = comment.trim().length >= 3;
   return (
@@ -127,7 +128,7 @@ function SendBackDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
             disabled={!ok}
             onClick={() => {
               projectStore.getState().sendBack(comment);
-              toast("Sent back to Rohan Desai", { description: comment.trim() });
+              toast(`Sent back to ${preparedBy}`, { description: comment.trim() });
               setComment("");
               onOpenChange(false);
             }}
