@@ -230,28 +230,51 @@ function nextFeatureId(project: Project, kind: string): string {
 
 /** Storage for persist: localStorage in the browser, nothing on the server or in tests. */
 const noStorage: StateStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
-/** localStorage, never throwing: blocked storage reads as empty and a full one skips the save. */
+
+const saveFailedListeners = new Set<() => void>();
+
+/** Called when saving starts failing (once per run of failures; a good save resets it). */
+export function onSaveFailed(listener: () => void): () => void {
+  saveFailedListeners.add(listener);
+  return () => saveFailedListeners.delete(listener);
+}
+
+const notifySaveFailed = () => saveFailedListeners.forEach((l) => l());
+
+type WebStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+/**
+ * Storage that never throws: blocked storage reads as empty, and a full one skips the save and
+ * reports it (quota or privacy mode), so the screen can say the project isn't being saved.
+ */
+export function guardedStorage(ls: WebStorage, saveFailed: () => void = notifySaveFailed): StateStorage {
+  let failing = false;
+  return {
+    getItem: (k) => ls.getItem(k),
+    setItem: (k, v) => {
+      try {
+        ls.setItem(k, v);
+        failing = false;
+      } catch {
+        if (!failing) saveFailed();
+        failing = true;
+      }
+    },
+    removeItem: (k) => {
+      try {
+        ls.removeItem(k);
+      } catch {
+        // Blocked storage: nothing to clear.
+      }
+    },
+  };
+}
+
+/** localStorage in the browser; nothing on the server, or when storage can't be reached at all. */
 const browserStorage = (): StateStorage => {
   if (typeof window === "undefined") return noStorage;
   try {
-    const ls = window.localStorage;
-    return {
-      getItem: (k) => ls.getItem(k),
-      setItem: (k, v) => {
-        try {
-          ls.setItem(k, v);
-        } catch {
-          // Quota or privacy mode: the demo keeps working, just unsaved.
-        }
-      },
-      removeItem: (k) => {
-        try {
-          ls.removeItem(k);
-        } catch {
-          // Blocked storage: nothing to clear.
-        }
-      },
-    };
+    return guardedStorage(window.localStorage);
   } catch {
     return noStorage;
   }
@@ -685,8 +708,12 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           if (isUsableProject(p.project, catalogue)) return { ...current, project: p.project, settings };
           return { ...current, project: emptyMehta, settings, ui: { ...current.ui, restoreFailed: true } };
         },
-        // A stored project from another version may not match today's types: start from the seed.
-        migrate: (): Saved => ({ project: initial, settings: initialSettings }),
+        // A stored project from another version may not match today's types: start from the seed,
+        // but keep the quote counter, so no quote number is ever issued twice.
+        migrate: (persisted): Saved => {
+          const old = (typeof persisted === "object" && persisted !== null ? persisted : {}) as { settings?: unknown };
+          return { project: initial, settings: { ...initialSettings, nextQuoteSeq: restoreSettings(old.settings, initialSettings).nextQuoteSeq } };
+        },
         // Rehydrated on the client after mount, so server and first client render agree.
         skipHydration: true,
       },

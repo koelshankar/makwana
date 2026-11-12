@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { projectStore, useHydrated } from "@/store/project-store";
+import { onSaveFailed, projectStore, useHydrated } from "@/store/project-store";
 import { ScreenBoundary } from "./screen-boundary";
 import { ShellSkeleton } from "./shell-skeleton";
 import { TopBar } from "./top-bar";
@@ -41,6 +41,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           toast.warning(`Quote returned to draft — approval needed again (Version ${r.version})`, { id: "returned-to-draft" });
         }
       }),
+    [],
+  );
+
+  // Browser storage full or blocked: the screen keeps working, but say that it isn't being saved.
+  useEffect(
+    () =>
+      onSaveFailed(() =>
+        toast.error("The project couldn't be saved", {
+          id: "save-failed",
+          description: "Browser storage is full or blocked. Your changes stay on screen, but a reload would lose them.",
+          duration: 10000,
+        }),
+      ),
     [],
   );
 

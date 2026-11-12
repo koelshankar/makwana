@@ -3,7 +3,7 @@ import { placementsOnWall } from "@/domain/geometry";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import { unit } from "@/domain/testing";
 import type { ModulePlacement } from "@/domain/types";
-import { createProjectStore, initialSettings, initialUi, PERSIST_KEY, PERSIST_VERSION, startOver, type NewModule } from "./project-store";
+import { createProjectStore, guardedStorage, initialSettings, initialUi, PERSIST_KEY, PERSIST_VERSION, startOver, type NewModule } from "./project-store";
 
 /** A placement without an id, so the store assigns one. */
 function draft(m: ModulePlacement): NewModule {
@@ -165,6 +165,48 @@ describe("persistence", () => {
     const store = createProjectStore(sampleDesign, mem.storage);
     await store.persist.rehydrate();
     expect(store.getState().project).toEqual(sampleDesign);
+  });
+
+  it("keeps the quote counter when the save version changes (#7)", async () => {
+    const mem = memoryStorage();
+    mem.data.set(PERSIST_KEY, JSON.stringify({ version: PERSIST_VERSION - 1, state: { project: { broken: true }, settings: { nextQuoteSeq: 153, role: "manager" } } }));
+    const store = createProjectStore(sampleDesign, mem.storage);
+    await store.persist.rehydrate();
+    expect(store.getState().project).toEqual(sampleDesign);
+    expect(store.getState().settings.nextQuoteSeq).toBe(153);
+    store.getState().ensureQuote();
+    expect(store.getState().project.quote!.number).toMatch(/-0153$/);
+    // A missing or malformed counter falls back to the default.
+    const bad = memoryStorage();
+    bad.data.set(PERSIST_KEY, JSON.stringify({ version: PERSIST_VERSION - 1, state: { settings: { nextQuoteSeq: -4 } } }));
+    const fresh = createProjectStore(sampleDesign, bad.storage);
+    await fresh.persist.rehydrate();
+    expect(fresh.getState().settings.nextQuoteSeq).toBe(initialSettings.nextQuoteSeq);
+  });
+
+  it("reports a failed save once per run of failures, without throwing (#7)", () => {
+    let full = true;
+    const data = new Map<string, string>();
+    const ls = {
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (full) throw new DOMException("quota", "QuotaExceededError");
+        data.set(k, v);
+      },
+      removeItem: (k: string) => void data.delete(k),
+    };
+    let failures = 0;
+    const store = createProjectStore(emptyMehta, () => guardedStorage(ls, () => failures++));
+    store.getState().setProjectInfo({ customerName: "A" });
+    store.getState().setProjectInfo({ customerName: "B" });
+    expect(failures).toBe(1);
+    expect(store.getState().project.customerName).toBe("B");
+    full = false;
+    store.getState().setProjectInfo({ customerName: "C" });
+    expect(JSON.parse(data.get(PERSIST_KEY)!).state.project.customerName).toBe("C");
+    full = true;
+    store.getState().setProjectInfo({ customerName: "D" });
+    expect(failures).toBe(2);
   });
 
   it("start over (#2): clears the saved project and resets the demo, so a reload can't bring the bad save back", async () => {
