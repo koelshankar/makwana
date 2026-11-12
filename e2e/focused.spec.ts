@@ -105,7 +105,7 @@ test('share in "Only when flagged" mode', async ({ page }) => {
   await expect(page.locator("[data-share-dialog]")).toContainText("MMK-AND-2026-0147");
 });
 
-test('"Only when flagged", discount 0: share and download give a final PDF, logged as a share', async ({ page, context }) => {
+test('"Only when flagged", discount 0: share and download give a Final PDF, logged as a share', async ({ page, context }) => {
   await context.addInitScript(() => (window.print = () => {}));
   await open(page, "/setup");
   await resetDemo(page);
@@ -123,8 +123,13 @@ test('"Only when flagged", discount 0: share and download give a final PDF, logg
   await expect(page.locator("[data-print-ready]")).toBeVisible();
   await expect(page.locator("body")).toContainText("MMK-AND-2026-0147");
   await expect(page.locator("[data-watermark]"), "no DRAFT watermark: nothing needs approval").toHaveCount(0);
+  // The PDF prints the status as Final; nothing else changes.
+  await expect(page.getByText("Final", { exact: true }), "PDF status").toHaveCount(1);
+  await expect(page.getByText("Draft", { exact: true })).toHaveCount(0);
 
   await page.getByRole("link", { name: "Back to the quote" }).click();
+  await expect(pill(page)).toHaveText("Draft");
+  expect((await saved(page)).project.status).toBe("draft");
   await page.locator("[data-activity-log] > button").click();
   await expect(page.locator("[data-activity=shared]")).toHaveCount(1);
   await expect(page.locator("[data-activity=shared]")).toContainText("Version 1 shared with Anil Mehta · PDF downloaded to send");

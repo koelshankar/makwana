@@ -37,7 +37,7 @@ Final run (pass 1): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/
 
 Final run (pass 2): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/design` 339 kB, shared 233 kB). `npx playwright test`: 38 passed, 2 skipped (automatic performance mode, see section 7), 40 in all across both sizes. That count includes the console guard's expected-failure self-check.
 
-Final run (pass 3, the fixes below, with `isQuoteFinal`): `npm test` 177/177, `tsc` and `lint` clean, build passes (`/design` 339 kB, `/quote` 308 kB, shared 233 kB). `npx playwright test`: 40 passed, 2 skipped (the same automatic performance mode half), 42 in all.
+Final run (pass 3, the fixes below, with `isQuoteFinal` and the PDF's Final status): `npm test` 178/178, `tsc` and `lint` clean, build passes (`/design` 339 kB, `/quote` 308 kB, shared 234 kB). `npx playwright test`: 40 passed, 2 skipped (the same automatic performance mode half), 42 in all.
 
 ## Pass 3 fixes
 
@@ -47,6 +47,7 @@ Final run (pass 3, the fixes below, with `isQuoteFinal`): `npm test` 177/177, `t
 | M2 | The elevation draws a selected unit as an accent outline over its normal finish tint. Blocked units keep their red fill. The plan is unchanged: it fills units by layer, not finish. | e2e: in the main script the tint (`data-finish-tint`) changes to the new finish while HU900 is still selected. |
 | M3 | The download log moved into `useDownloadPdf`, which both the footer and the Share dialog use, so each download logs once. It calls `markPdfDownloaded` (`src/domain/quote.ts`). A final quote (see `isQuoteFinal` below) logs the share "Version N shared with … · PDF downloaded to send". Any other logs `draft_downloaded` "Draft PDF downloaded · Version N", which is not a share. | Unit: both approval modes, draft, pending, approved and version 2; no quote logs nothing. e2e (focused "download assigns a number", "Always"): the footer download of a draft logs "Draft PDF downloaded · Version 1" and no share; after approval the same button logs one share. The main script (approved, from the dialog) still sees exactly two shares. |
 | Final | `isQuoteFinal(project, settings)` in `src/domain/quote.ts`: true if the quote is approved, or if the approval mode is "Only when flagged" and nothing needs approval (no `approval` rule results; computed from the project if not given). It decides the DRAFT watermark (`quoteModel` takes the settings; without them it assumes "Always") and the download entry. `canShare` now uses it too (final and nothing blocked), the same rule as before, written once. | Unit: `isQuoteFinal` in both modes; the watermark in "Only when flagged" with discount 0 and 8. e2e (focused): "Only when flagged", discount 0, Share → Download PDF: 0147, no watermark, one share logged, no draft entry. |
+| PDF status | On the PDF only, a final quote that isn't approved prints its status as "Final" (`quoteModel` → `header.pdfStatus`, `"final"` or the stored status). The stored status and the Quote screen (`header.status`, the pill) are unchanged: such a quote is still Draft there. Approved prints Approved in both modes. | Unit: Final in "Only when flagged" with nothing to approve; the stored status otherwise (draft, pending, approved, both modes). e2e (the focused "Only when flagged" test): the PDF says Final and not Draft; back on the Quote screen the pill says Draft and the saved status is `draft`. |
 | D5 | The Totals card hides "above 5% · needs approval" once the quote is approved. It still shows in draft and while pending; "within salesperson limit" is unchanged. | e2e: the main script sees the note while pending and no note after approval. |
 
 
@@ -121,7 +122,7 @@ Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs
 ## Decisions
 
 - **No tab sync.** A second tab is blocked, not kept in sync. One live tab means one writer for the save and the quote counter. To switch tabs, close the first one and reload the second.
-- **DRAFT watermark.** Download PDF stays available before approval, so the salesperson can send a preview, but every page is marked DRAFT until the quote is final: approved, or in "Only when flagged" mode with nothing that needs approval (`isQuoteFinal`). A draft download is logged as "Draft PDF downloaded · Version N", not as a share.
+- **DRAFT watermark.** Download PDF stays available before approval, so the salesperson can send a preview, but every page is marked DRAFT until the quote is final: approved, or in "Only when flagged" mode with nothing that needs approval (`isQuoteFinal`). A draft download is logged as "Draft PDF downloaded · Version N", not as a share. A final quote that isn't approved prints its status as "Final" on the PDF only; it stays Draft in the project and on the Quote screen.
 - **Playwright on real Chrome GPU.** Tests use the installed Google Chrome (`channel: "chrome"`) with no SwiftShader flags. Software WebGL logs "GPU stall due to ReadPixels" warnings, which would trip the rule that fails a test on any console error or warning. The demo machine needs Google Chrome installed.
 
 ## Lockfile note

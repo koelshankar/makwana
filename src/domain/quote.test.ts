@@ -102,6 +102,22 @@ describe("workflow", () => {
     expect(quoteModel(quoted, catalogue, undefined, { approvalMode: "always" }).header.watermark).toBe("DRAFT");
   });
 
+  it("prints a final quote that isn't approved as Final, without changing the stored status", () => {
+    const flagged = { approvalMode: "flagged" as const };
+    const always = { approvalMode: "always" as const };
+    const approved = approve(sendForApproval(quoted, T, "R"), T, "M");
+    const final = quoteModel(quoted, catalogue, undefined, flagged).header;
+    expect([final.status, final.pdfStatus]).toEqual(["draft", "final"]);
+    expect(quoted.status).toBe("draft");
+    // Not final: the stored status.
+    expect(quoteModel(quoted, catalogue, undefined, always).header.pdfStatus).toBe("draft");
+    expect(quoteModel({ ...quoted, discountPct: 8 }, catalogue, undefined, flagged).header.pdfStatus).toBe("draft");
+    expect(quoteModel(sendForApproval({ ...quoted, discountPct: 8 }, T, "R"), catalogue, undefined, flagged).header.pdfStatus).toBe("pending_approval");
+    // Approved stays Approved, in both modes.
+    expect(quoteModel(approved, catalogue, undefined, flagged).header.pdfStatus).toBe("approved");
+    expect(quoteModel(approved, catalogue, undefined, always).header.pdfStatus).toBe("approved");
+  });
+
   it("customer, site, project name and kitchen type count as changes: they print on the approved quote (#6)", () => {
     const approved = approve(sendForApproval(quoted, T, "Rohan Desai"), T, "Store Manager");
     for (const patch of [{ customerName: "Someone Else" }, { siteAddress: "Elsewhere" }, { name: "Another kitchen" }, { kitchenType: "open" as const }]) {

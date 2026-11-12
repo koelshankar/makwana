@@ -187,7 +187,7 @@ export function PrintQuote() {
             ["Project", h.projectName],
             ["Valid until", `${h.validUntil} (${h.validityDays} days)`],
             ["Prepared by", h.preparedBy],
-            ["Status", STATUS_TEXT[h.status] + (h.approvedBy ? ` · by ${h.approvedBy}, ${h.approvedAt}` : "")],
+            ["Status", (h.pdfStatus === "final" ? "Final" : STATUS_TEXT[h.pdfStatus]) + (h.approvedBy ? ` · by ${h.approvedBy}, ${h.approvedAt}` : "")],
           ].map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-mk-muted">{k}</dt>

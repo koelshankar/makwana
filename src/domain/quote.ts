@@ -201,6 +201,11 @@ export interface QuoteModel {
     quoteNumber: string;
     version: number;
     status: Project["status"];
+    /**
+     * The status the PDF prints: "final" for a final quote that isn't approved ("Only when flagged",
+     * nothing needs approval), otherwise the stored status. The Quote screen shows `status`.
+     */
+    pdfStatus: Project["status"] | "final";
     date: string;
     validUntil: string;
     validityDays: number;
@@ -264,6 +269,7 @@ const INCLUDED_SUBS: Record<string, string> = {
 export function quoteModel(project: Project, cat: Catalogue, results: CheckResult[] = runRawChecks(project, cat), settings: Pick<QuoteSettings, "approvalMode"> = { approvalMode: "always" }): QuoteModel {
   const pricing = priceProject(project, cat);
   const created = project.quote?.createdAt ?? new Date().toISOString();
+  const final = isQuoteFinal(project, settings, results);
 
   // Units, grouped by row, ordered by wall then position, numbered B-1, B-2…
   const byGroup = (["base", "wall", "loft", "tall"] as Layer[]).map((group): QuoteGroup => {
@@ -338,6 +344,7 @@ export function quoteModel(project: Project, cat: Catalogue, results: CheckResul
       quoteNumber: project.quote?.number ?? "Not yet assigned",
       version: project.quote?.version ?? 1,
       status: project.status,
+      pdfStatus: final && project.status !== "approved" ? "final" : project.status,
       date: formatDate(created),
       validUntil: formatDate(addDays(created, QUOTE_VALIDITY_DAYS)),
       validityDays: QUOTE_VALIDITY_DAYS,
@@ -348,7 +355,7 @@ export function quoteModel(project: Project, cat: Catalogue, results: CheckResul
       ruleSetVersion: project.quote?.ruleSetVersion ?? RULE_SET_VERSION,
       approvedBy: project.quote?.approvedBy,
       approvedAt: project.quote?.approvedAt ? formatDate(project.quote.approvedAt) : undefined,
-      watermark: isQuoteFinal(project, settings, results) ? undefined : "DRAFT",
+      watermark: final ? undefined : "DRAFT",
     },
     summary: {
       walls: project.room.walls.length,
