@@ -168,6 +168,7 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
   const onCreated = useCallback(({ gl }: { gl: THREE.WebGLRenderer }) => {
     detachContextEvents.current?.();
     const canvas = gl.domElement;
+    canvas.setAttribute("data-scene-ready", ""); // The renderer is up (end-to-end tests wait for it).
     const lost = () => reportRef.current?.("context-lost");
     const restored = () => reportRef.current?.("context-restored");
     canvas.addEventListener("webglcontextlost", lost);
