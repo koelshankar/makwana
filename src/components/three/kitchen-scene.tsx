@@ -157,7 +157,12 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
   const hover = interactive && hoverId && hoverId !== selected ? hoverId : null;
 
   // WebGL context loss mid-session (GPU reset, driver update): tell the boundary, which shows the
-  // "3D view isn't available" panel and remounts this canvas when the context is restored.
+  // "3D view isn't available" panel while it is lost. On restore three.js rebuilds its GPU state in
+  // this same canvas (its own listener runs first, added when the renderer was made); the count
+  // below re-renders the scene, which redraws the frame (frameloop "demand") and the contact
+  // shadows (drei renders them again after each re-render). No remount: a remount would dispose
+  // objects from before the loss and log WebGL "object does not belong to this context" warnings.
+  const [restores, setRestores] = useState(0);
   const report = useContext(SceneEvents);
   const reportRef = useRef(report);
   useEffect(() => {
@@ -170,7 +175,10 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
     const canvas = gl.domElement;
     canvas.setAttribute("data-scene-ready", ""); // The renderer is up (end-to-end tests wait for it).
     const lost = () => reportRef.current?.("context-lost");
-    const restored = () => reportRef.current?.("context-restored");
+    const restored = () => {
+      reportRef.current?.("context-restored");
+      setRestores((n) => n + 1);
+    };
     canvas.addEventListener("webglcontextlost", lost);
     canvas.addEventListener("webglcontextrestored", restored);
     detachContextEvents.current = () => {
@@ -218,7 +226,7 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
       {interactive && selected && boxes.get(selected) && <UnitOutline box={boxes.get(selected)!} kind="selected" shell={!blockedIds.has(selected)} />}
       {hover && boxes.get(hover) && <UnitOutline box={boxes.get(hover)!} kind="hover" />}
       {subscribeGhost && <GhostBox subscribe={subscribeGhost} />}
-      <Invalidate deps={[project, selected, hover, blockedIds, wallHeight, interactive, performance]} />
+      <Invalidate deps={[project, selected, hover, blockedIds, wallHeight, interactive, performance, restores]} />
       <CameraRig ref={ref} room={project.room} boxes={boxes} activeWallId={activeWallId} onSlowFrames={onSlowFrames} />
     </Canvas>
   );

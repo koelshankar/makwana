@@ -1,6 +1,7 @@
 // End-to-end checks for the hardening-1 fixes that a browser can show. (Fixes without a browser
 // path, such as a store that throws while restoring, are covered by the Vitest suite.)
 
+import type { Locator, Page } from "@playwright/test";
 import { sampleDesign } from "../src/domain/seed";
 import { demoMenu, expect, open, test } from "./fixtures";
 
@@ -15,41 +16,93 @@ test.describe("console guard", () => {
 });
 
 test.describe("#3 WebGL context lost mid-session", () => {
-  // Expected here and nowhere else: Chrome reports the forced loss itself, and when the canvas
-  // remounts after the restore, the old renderer's clean-up deletes objects that were created
-  // before the loss ("object does not belong to this context"). Harmless; nothing is drawn with them.
-  test.use({ allowedConsole: /CONTEXT_LOST_WEBGL|INVALID_OPERATION: delete(VertexArray)?: object does not belong to this context/i });
-
-  test("shows the unavailable panel while lost and remounts the 3D view on restore", async ({ page }) => {
+  test("shows the unavailable panel while lost; three.js restores and the scene fully redraws", async ({ page }) => {
     await open(page, "/design");
     const panel = page.locator("[data-three-panel]");
-    const canvas = panel.locator("canvas");
-    // Mid-session: the scene has started and drawn before the context goes.
-    await expect(panel.locator("canvas[data-scene-ready]")).toHaveCount(1);
+    const canvas = panel.locator("canvas[data-scene-ready]");
+    // Mid-session: the scene has started and drawn (with its contact shadows) before the context goes.
+    await expect(canvas).toHaveCount(1);
     await expect(panel.locator("[data-three-unavailable]")).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    const before = await settledShot(canvas);
+    expect(await compare(page, before), "the 3D view has drawn something").toBeGreaterThan(0.2);
 
-    await canvas.evaluate((c: HTMLCanvasElement) => {
-      const gl = c.getContext("webgl2") ?? c.getContext("webgl");
-      const ext = gl!.getExtension("WEBGL_lose_context")!;
-      (window as unknown as { __lose: WEBGL_lose_context }).__lose = ext;
+    const sameCanvas = await canvas.evaluate((c: HTMLCanvasElement) => {
+      const gl = (c.getContext("webgl2") ?? c.getContext("webgl"))!;
+      const ext = gl.getExtension("WEBGL_lose_context")!;
+      const w = window as unknown as { __lose: WEBGL_lose_context; __canvas: HTMLCanvasElement };
+      w.__lose = ext;
+      w.__canvas = c;
       ext.loseContext();
+      return true;
     });
+    expect(sameCanvas).toBe(true);
     await expect(panel.locator("[data-three-unavailable]")).toBeVisible();
     await expect(panel.getByText("3D view isn't available on this device")).toBeVisible();
 
     await page.evaluate(() => (window as unknown as { __lose: WEBGL_lose_context }).__lose.restoreContext());
     await expect(panel.locator("[data-three-unavailable]")).toHaveCount(0);
-    await expect(panel.locator("canvas[data-scene-ready]")).toHaveCount(1);
-    // A fresh canvas with a working context.
-    const ok = await canvas.evaluate((c: HTMLCanvasElement) => {
-      const gl = c.getContext("webgl2") ?? c.getContext("webgl");
-      return !!gl && !gl.isContextLost();
-    });
-    expect(ok).toBe(true);
-    await page.waitForTimeout(500);
-    await panel.screenshot({ path: test.info().outputPath("after-restore.png") });
+    // Restored in place: the same canvas element, with a working context (no remount).
+    expect(await canvas.evaluate((c) => c === (window as unknown as { __canvas: HTMLCanvasElement }).__canvas)).toBe(true);
+    expect(await canvas.evaluate((c: HTMLCanvasElement) => !(c.getContext("webgl2") ?? c.getContext("webgl"))!.isContextLost())).toBe(true);
+
+    // A full redraw: the restored frame matches the one before the loss, shadows and edges included.
+    // (A restored context starts with an empty drawing buffer, so a missed redraw shows as blank.)
+    await expect
+      .poll(async () => compare(page, await canvas.screenshot(), before), { timeout: 5000 })
+      .toBeLessThan(0.002);
+    await canvas.screenshot({ path: test.info().outputPath("after-restore.png") });
   });
 });
+
+/** A screenshot taken once two in a row agree (the demand frame loop has finished drawing). */
+async function settledShot(target: Locator): Promise<Buffer> {
+  let last = await target.screenshot();
+  for (let i = 0; i < 20; i++) {
+    await target.page().waitForTimeout(150);
+    const next = await target.screenshot();
+    if (next.equals(last)) return next;
+    last = next;
+  }
+  return last;
+}
+
+/**
+ * Compares PNGs in the page: the share of pixels of `a` that differ from `b` by more than 8 in any
+ * channel, or (without `b`) that differ from the 3D background colour #f1efeb.
+ */
+async function compare(page: Page, a: Buffer, b?: Buffer): Promise<number> {
+  return page.evaluate(
+    async ([a64, b64]) => {
+      const decode = async (b64: string) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${b64}`;
+        await img.decode();
+        const c = document.createElement("canvas");
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext("2d")!;
+        ctx.drawImage(img, 0, 0);
+        return ctx.getImageData(0, 0, c.width, c.height).data;
+      };
+      const pa = await decode(a64);
+      const pb = b64 ? await decode(b64) : null;
+      if (pb && pb.length !== pa.length) return 1;
+      const bg = [0xf1, 0xef, 0xeb];
+      let n = 0;
+      for (let i = 0; i < pa.length; i += 4) {
+        for (let k = 0; k < 3; k++) {
+          if (Math.abs(pa[i + k] - (pb ? pb[i + k] : bg[k])) > 8) {
+            n++;
+            break;
+          }
+        }
+      }
+      return n / (pa.length / 4);
+    },
+    [a.toString("base64"), b?.toString("base64") ?? null] as const,
+  );
+}
 
 test.describe("#4 second tab", () => {
   test("a second tab shows the blocking notice; the first keeps working", async ({ page, context }) => {

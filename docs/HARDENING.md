@@ -22,7 +22,7 @@ Branch: `hardening-1` (from `main` at `6a9cd17`). One commit per finding. Not me
 ## Fixes and tests
 
 - **#2** Error page has Start over: `startOver()` clears `makwana:project` and runs Reset demo. Test: store unit.
-- **#3** The canvas reports `webglcontextlost`/`webglcontextrestored`. The panel shows while lost; the canvas remounts on restore (`scene-health.ts`). Tests: unit + e2e.
+- **#3** The canvas reports `webglcontextlost`/`webglcontextrestored`. The panel shows while lost. On restore three.js rebuilds its GPU state in the same canvas; `KitchenScene` re-renders, which redraws the frame and the contact shadows. No remount (pass 2; the remount logged ~84 WebGL warnings). Tests: unit + e2e. The e2e test checks it is the same canvas element and that the restored frame matches the frame before the loss (< 0.2% of pixels differ; a missed redraw gives 37%). It has no console allowance. Toggling shadows, deleting a unit and undoing after a restore log nothing either.
 - **#4** BroadcastChannel tab guard (`src/lib/tab-guard.ts`). The newer tab shows "This demo is open in another tab." Tests: unit + e2e.
 - **#5** `app/error.tsx` and `app/global-error.tsx` use the shared error screen. Test: none (no way to force a crash); build passes.
 - **#6** `designChanged` includes name, customerName, siteAddress and kitchenType. Tests: domain + store unit, e2e.
@@ -57,7 +57,6 @@ Checked in the code, then measured in Chrome against the production build at 136
 - The section 6 and 7 Playwright tests are not written.
 - #1: install, build and run `npm start` once offline on the demo laptop.
 - #7 gap: a save-version change still replaces the saved project with the sample design without a toast.
-- #3: the remount logs about 84 harmless WebGL "object does not belong to this context" warnings. The e2e test allows only these. Three.js restores cleanly without a remount, which is an alternative.
 - Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
 
 ## Decisions

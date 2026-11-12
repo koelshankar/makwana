@@ -2,10 +2,11 @@
 
 // Every 3D canvas sits inside this boundary. If the device has no WebGL, the renderer throws while
 // starting or drawing, or the WebGL context is lost mid-session, the panel says so and the rest of
-// the screen keeps working. When a lost context is restored, the canvas remounts.
+// the screen keeps working. When a lost context is restored, three.js rebuilds its GPU state in the
+// same canvas and the scene redraws (see KitchenScene); the panel goes away.
 
 import { Box } from "lucide-react";
-import { Component, createContext, Fragment, type ReactNode } from "react";
+import { Component, createContext, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { healthyScene, sceneHealth, sceneUnavailable, type SceneEvent, type SceneHealth } from "./scene-health";
 
@@ -69,14 +70,14 @@ export class SceneBoundary extends Component<Props, SceneHealth> {
   };
 
   render() {
-    const { failed, generation } = this.state;
+    const { failed } = this.state;
     const panel = this.props.fallback === undefined ? <SceneUnavailable /> : this.props.fallback;
     if (failed) return panel;
-    // While the context is lost the canvas stays mounted (it is the element that receives the
-    // restore event) under the panel; on restore the new generation key remounts it.
+    // While the context is lost the canvas stays mounted under the panel: it is the element that
+    // receives the restore event, and three.js restores into it.
     return (
       <SceneEvents.Provider value={this.report}>
-        <Fragment key={generation}>{this.props.children}</Fragment>
+        {this.props.children}
         {sceneUnavailable(this.state) && panel}
       </SceneEvents.Provider>
     );

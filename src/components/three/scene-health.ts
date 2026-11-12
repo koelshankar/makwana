@@ -7,13 +7,11 @@ export interface SceneHealth {
   failed: boolean;
   /** The WebGL context was lost and hasn't come back yet. */
   lost: boolean;
-  /** Bumped when a lost context is restored: the canvas is keyed by it, so it remounts cleanly. */
-  generation: number;
 }
 
 export type SceneEvent = "error" | "context-lost" | "context-restored";
 
-export const healthyScene: SceneHealth = { failed: false, lost: false, generation: 0 };
+export const healthyScene: SceneHealth = { failed: false, lost: false };
 
 export function sceneHealth(state: SceneHealth, event: SceneEvent): SceneHealth {
   switch (event) {
@@ -22,7 +20,7 @@ export function sceneHealth(state: SceneHealth, event: SceneEvent): SceneHealth 
     case "context-lost":
       return state.lost ? state : { ...state, lost: true };
     case "context-restored":
-      return state.lost ? { ...state, lost: false, generation: state.generation + 1 } : state;
+      return state.lost ? { ...state, lost: false } : state;
   }
 }
 

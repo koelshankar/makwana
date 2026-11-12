@@ -5,21 +5,17 @@ const run = (...events: SceneEvent[]) => events.reduce(sceneHealth, healthyScene
 
 describe("3D panel health (#3)", () => {
   it("shows the unavailable panel while the WebGL context is lost, mid-session", () => {
-    const lost = run("context-lost");
-    expect(sceneUnavailable(lost)).toBe(true);
-    expect(lost.generation).toBe(0);
+    expect(sceneUnavailable(run("context-lost"))).toBe(true);
   });
 
-  it("remounts the canvas (new generation) when the context comes back", () => {
-    const back = run("context-lost", "context-restored");
-    expect(sceneUnavailable(back)).toBe(false);
-    expect(back.generation).toBe(1);
-    expect(run("context-lost", "context-restored", "context-lost", "context-restored").generation).toBe(2);
+  it("shows the 3D view again when the context comes back, as often as it is lost", () => {
+    expect(run("context-lost", "context-restored")).toEqual(healthyScene);
+    expect(run("context-lost", "context-restored", "context-lost", "context-restored")).toEqual(healthyScene);
   });
 
   it("ignores a restore without a loss and repeated loss events", () => {
     expect(run("context-restored")).toEqual(healthyScene);
-    expect(run("context-lost", "context-lost", "context-restored").generation).toBe(1);
+    expect(run("context-lost", "context-lost", "context-restored")).toEqual(healthyScene);
   });
 
   it("stays unavailable after a renderer error, even if a context is restored", () => {
