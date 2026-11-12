@@ -14,9 +14,13 @@ describe("inheritedFinish", () => {
     expect(inheritedFinish(sampleDesign, catalogue, "LS600")).toEqual({ finishId: "acrylic-ivory", shutterTypeId: "standard" });
   });
 
-  it("falls back to the first finish and the first valid shutter", () => {
+  it("falls back to the group's default finish with a Standard shutter", () => {
+    expect(inheritedFinish(emptyMehta, catalogue, "B600")).toEqual({ finishId: "matte-sage", shutterTypeId: "standard" });
+    expect(inheritedFinish(emptyMehta, catalogue, "HU900")).toEqual({ finishId: "matte-sage", shutterTypeId: "standard" });
     expect(inheritedFinish(emptyMehta, catalogue, "W600")).toEqual({ finishId: "acrylic-ivory", shutterTypeId: "standard" });
-    expect(inheritedFinish(emptyMehta, catalogue, "T600OM")).toEqual({ finishId: "acrylic-ivory", shutterTypeId: "appliance-housing" });
+    expect(inheritedFinish(emptyMehta, catalogue, "LS900")).toEqual({ finishId: "acrylic-ivory", shutterTypeId: "standard" });
+    expect(inheritedFinish(emptyMehta, catalogue, "TP600")).toEqual({ finishId: "laminate-charcoal", shutterTypeId: "standard" });
+    expect(inheritedFinish(emptyMehta, catalogue, "T600OM")).toEqual({ finishId: "laminate-charcoal", shutterTypeId: "appliance-housing" });
     // Handleless isn't made in Acrylic Ivory.
     const recent = { base: { finishId: "acrylic-ivory", shutterTypeId: "handleless" } };
     expect(inheritedFinish(emptyMehta, catalogue, "B600", recent).shutterTypeId).toBe("standard");

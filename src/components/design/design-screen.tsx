@@ -6,13 +6,14 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { getModule, catalogue } from "@/domain/catalogue";
+import { findPlacement, isModulePlacement } from "@/domain/geometry";
 import { projectStore, useBlockedIds, useProjectStore, useRoomValidation } from "@/store/project-store";
 import { commitGhost } from "./commit";
 import { DesignFooter } from "./design-footer";
 import { ghostAt } from "./ghost";
 import { Inspector } from "./inspector";
 import { useInteraction, type ClientPoint } from "./interaction";
-import { ModuleDragPreview, ModulesPanel } from "./modules-panel";
+import { ApplianceDragPreview, ModuleDragPreview, ModulesPanel } from "./modules-panel";
 import { ThreePanel } from "./three-panel";
 import { ViewsPanel } from "./views-panel";
 
@@ -53,23 +54,32 @@ function useKeyboard() {
       if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
       const { project, ui, removePlacement, select } = projectStore.getState();
       const interaction = useInteraction.getState();
+      // The customer view only has view controls; Esc leaves it.
+      if (ui.customerView) {
+        if (e.key === "Escape") projectStore.getState().setCustomerView(false);
+        return;
+      }
       if (e.key === "Escape") {
         select(null);
         interaction.set({ outcome: null, ghost: null, item: null });
         return;
       }
-      const p = project.modules.find((m) => m.id === ui.selectedPlacementId);
-      if (!p) return;
+      const selected = ui.selectedPlacementId ? findPlacement(project, ui.selectedPlacementId) : undefined;
+      if (!selected) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        removePlacement(p.id);
+        removePlacement(selected.id);
         interaction.set({ outcome: null });
         return;
       }
+      // Units and free appliances nudge; fitted appliances move with their host.
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (!isModulePlacement(selected) && selected.kind !== "free") return;
+      const p = selected;
       e.preventDefault();
       const step = (e.shiftKey ? 100 : 10) * (e.key === "ArrowLeft" ? -1 : 1);
-      const current = interaction.ghost?.item.kind === "nudge" && interaction.ghost.candidate.id === p.id ? interaction.ghost.candidate.offsetMm : p.offsetMm;
+      const nudging = interaction.ghost?.item.kind === "nudge" && interaction.ghost.candidate.id === p.id ? interaction.ghost : null;
+      const current = nudging ? nudging.slot.offsetMm : p.offsetMm;
       const ghost = ghostAt(project, { kind: "nudge", placementId: p.id }, p, current + step);
       interaction.set({ item: ghost.item, ghost, outcome: null });
     };
@@ -78,7 +88,7 @@ function useKeyboard() {
       const { ghost, elevation, set } = useInteraction.getState();
       if (ghost?.item.kind !== "nudge") return;
       set({ ghost: null, item: null });
-      const c = ghost.candidate;
+      const c = ghost.slot;
       const at =
         elevation && elevation.wallId === c.wallId
           ? elevation.locate(c.offsetMm + c.widthMm / 2, 0)
@@ -97,7 +107,7 @@ function useKeyboard() {
 export function DesignScreen() {
   const room = useRoomValidation();
   const item = useInteraction((s) => s.item);
-  const overWall = useInteraction((s) => s.ghost !== null && s.item?.kind === "new");
+  const overWall = useInteraction((s) => s.ghost !== null && (s.item?.kind === "new" || s.item?.kind === "newAppliance"));
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   useEntryWarning();
   useKeyboard();
@@ -116,23 +126,30 @@ export function DesignScreen() {
 
   const onDragStart = (e: DragStartEvent) => {
     const moduleCode = e.active.data.current?.moduleCode as string | undefined;
-    if (!moduleCode) return;
+    const applianceId = e.active.data.current?.applianceId as string | undefined;
+    if (!moduleCode && !applianceId) return;
     const { ui, project, showWall } = projectStore.getState();
     // Units are dropped onto an elevation: open one if the plan is showing.
     if (ui.designTab === "plan") showWall(ui.activeWallId ?? project.room.walls[0].id);
-    useInteraction.getState().set({ item: { kind: "new", moduleCode }, ghost: null, outcome: null });
+    useInteraction.getState().set({
+      item: moduleCode ? { kind: "new", moduleCode } : { kind: "newAppliance", applianceId: applianceId! },
+      ghost: null,
+      outcome: null,
+      highlight: null,
+    });
   };
   const onDragMove = (e: DragMoveEvent) => useInteraction.getState().set({ pointer: pointerOf(e) });
   const onDragEnd = (e: DragEndEvent) => {
     const { item: dragged, elevation, set } = useInteraction.getState();
     const pointer = pointerOf(e);
     set({ item: null, ghost: null, pointer: null });
-    if (dragged?.kind !== "new" || !pointer || !elevation) return;
+    if ((dragged?.kind !== "new" && dragged?.kind !== "newAppliance") || !pointer || !elevation) return;
     const ghost = elevation.resolve(pointer, dragged, !(e.activatorEvent as PointerEvent).altKey);
     if (ghost) commitGhost(ghost, pointer);
   };
 
   const draggedModule = item?.kind === "new" ? getModule(catalogue, item.moduleCode) : null;
+  const draggedAppliance = item?.kind === "newAppliance" ? item.applianceId : null;
 
   return (
     <DndContext
@@ -150,7 +167,10 @@ export function DesignScreen() {
         <Inspector />
       </div>
       <DesignFooter />
-      <DragOverlay dropAnimation={null}>{draggedModule && <ModuleDragPreview moduleCode={draggedModule.code} compact={overWall} />}</DragOverlay>
+      <DragOverlay dropAnimation={null}>
+        {draggedModule && <ModuleDragPreview moduleCode={draggedModule.code} compact={overWall} />}
+        {draggedAppliance && <ApplianceDragPreview applianceId={draggedAppliance} compact={overWall} />}
+      </DragOverlay>
     </DndContext>
   );
 }

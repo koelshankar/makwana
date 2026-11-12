@@ -2,13 +2,14 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { catalogue, getAppliance, getFinish } from "@/domain/catalogue";
+import { inheritedFinish } from "@/domain/finish-defaults";
 import { isModulePlacement } from "@/domain/geometry";
-import type { ModulePlacement } from "@/domain/types";
+import type { Placement } from "@/domain/types";
 import { ZONES } from "@/domain/zones";
 import { mm } from "@/lib/room-format";
 import { projectStore, useBlockedIds, useProjectStore } from "@/store/project-store";
 import { commitGhost } from "../commit";
-import { dragPlacement, ghostAt, snappedGhost } from "../ghost";
+import { dragPlacement, ghostAt, snappedGhost, validHosts, widthOf, type WallPlaced } from "../ghost";
 import { useInteraction, type ClientPoint, type DragItem, type ElevationApi, type Ghost } from "../interaction";
 import { elevationModel, layerBand, type ElevUnit } from "./elevation-model";
 
@@ -87,31 +88,46 @@ function Fronts({ u, Y, handleless }: { u: ElevUnit; Y: (z: number) => number; h
   return <g pointerEvents="none">{lines}</g>;
 }
 
-export function Elevation({ wallId }: { wallId: string }) {
+/** Width a print-mode elevation is laid out for, in CSS px (it scales to its container). */
+const PRINT_WIDTH_PX = 720;
+
+/**
+ * One wall's elevation. `print` draws it read-only at a fixed scale for the quote PDF: no
+ * selection, drags, ghosts or highlights, and nothing registered with the Design screen.
+ */
+export function Elevation({ wallId, print = false }: { wallId: string; print?: boolean }) {
   const project = useProjectStore((s) => s.project);
-  const selectedId = useProjectStore((s) => s.ui.selectedPlacementId);
-  const zoom = useProjectStore((s) => s.ui.elevationZoom);
+  const liveSelected = useProjectStore((s) => s.ui.selectedPlacementId);
+  const liveZoom = useProjectStore((s) => s.ui.elevationZoom);
   const setZoom = useProjectStore((s) => s.setElevationZoom);
-  const blocked = useBlockedIds();
-  const ghost = useInteraction((s) => s.ghost);
-  const dragItem = useInteraction((s) => s.item);
+  const liveBlocked = useBlockedIds();
+  const liveGhost = useInteraction((s) => s.ghost);
+  const liveItem = useInteraction((s) => s.item);
+  const liveHighlight = useInteraction((s) => s.highlight);
+  const selectedId = print ? null : liveSelected;
+  const zoom = print ? 1 : liveZoom;
+  const blocked = print ? new Set<string>() : liveBlocked;
+  const ghost = print ? null : liveGhost;
+  const dragItem = print ? null : liveItem;
+  const highlight = print ? null : liveHighlight;
   const model = useMemo(() => elevationModel(project, wallId), [project, wallId]);
 
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const [size, setSize] = useState({ w: 600, h: 600 });
+  const [measured, setSize] = useState({ w: 600, h: 600 });
   useLayoutEffect(() => {
     const el = boxRef.current;
-    if (!el) return;
+    if (!el || print) return;
     const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [print]);
 
   const length = model?.length ?? 1000;
   const ceiling = model?.ceiling ?? 2700;
   const Y = (z: number) => ceiling - z;
   const fit = { x: -M.left, y: -M.top, w: length + M.left + M.right, h: ceiling + M.top + M.bottom };
+  const size = print ? { w: PRINT_WIDTH_PX, h: (PRINT_WIDTH_PX * fit.h) / fit.w } : measured;
   const [pan, setPan] = useState<{ cx: number; cy: number } | null>(null);
   const cx = pan?.cx ?? fit.x + fit.w / 2;
   const cy = pan?.cy ?? fit.y + fit.h / 2;
@@ -145,7 +161,7 @@ export function Elevation({ wallId }: { wallId: string }) {
     if (!base) return null;
     base.wallId = wall;
     const at = toLocal(pointer);
-    const raw = at.x - (grabMm ?? (item.kind === "move" ? item.grabMm : base.widthMm / 2));
+    const raw = at.x - (grabMm ?? (item.kind === "move" ? item.grabMm : widthOf(base) / 2));
     return snappedGhost(p, item, base, raw, SNAP_PX * scale, magnets);
   };
 
@@ -165,10 +181,11 @@ export function Elevation({ wallId }: { wallId: string }) {
   const alt = useRef(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => (alt.current = e.altKey);
+    if (print) return;
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
     const unsub = useInteraction.subscribe((s, prev) => {
-      if (s.item?.kind !== "new" || !s.pointer || s.pointer === prev.pointer) return;
+      if ((s.item?.kind !== "new" && s.item?.kind !== "newAppliance") || !s.pointer || s.pointer === prev.pointer) return;
       const item = s.item;
       const pointer = s.pointer;
       schedule(() => resolve(pointer, item, !alt.current));
@@ -182,11 +199,12 @@ export function Elevation({ wallId }: { wallId: string }) {
 
   // Register so the screen can resolve drops and anchor cards here.
   useEffect(() => {
+    if (print) return;
     const api: ElevationApi = {
       wallId,
       resolve: (pointer, item, magnets) => resolve(pointer, item, magnets),
-      resolveAt: (placement: ModulePlacement, offsetMm: number) =>
-        ghostAt(latest.current.project, { kind: "nudge", placementId: placement.id }, placement, offsetMm),
+      resolveAt: (placement: Placement, offsetMm: number) =>
+        ghostAt(latest.current.project, { kind: "nudge", placementId: placement.id }, placement as WallPlaced, offsetMm),
       locate: (offsetMm, zMm) => {
         const ctm = svgRef.current?.getScreenCTM();
         if (!ctm) return { x: 0, y: 0 };
@@ -208,11 +226,11 @@ export function Elevation({ wallId }: { wallId: string }) {
     gesture.current = { kind: "pan", x: e.clientX, y: e.clientY, cx, cy, moved: false };
   };
   const onUnitPointerDown = (u: ElevUnit, e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || print) return;
     e.stopPropagation();
     projectStore.getState().select(u.id);
-    useInteraction.getState().set({ outcome: null });
-    if (!isModulePlacement(u.placement)) return;
+    useInteraction.getState().set({ outcome: null, highlight: null });
+    // Units and free appliances drag along their wall.
     svgRef.current!.setPointerCapture(e.pointerId);
     gesture.current = { kind: "unit", id: u.id, grabMm: toLocal({ x: e.clientX, y: e.clientY }).x - u.x0, x: e.clientX, moved: false };
   };
@@ -244,7 +262,7 @@ export function Elevation({ wallId }: { wallId: string }) {
     gesture.current = null;
     if (g?.kind === "pan" && !g.moved) {
       projectStore.getState().select(null);
-      useInteraction.getState().set({ outcome: null });
+      useInteraction.getState().set({ outcome: null, highlight: null });
     }
     if (g?.kind === "unit" && g.moved) {
       cancelAnimationFrame(frame.current);
@@ -284,6 +302,15 @@ export function Elevation({ wallId }: { wallId: string }) {
       .filter((a) => a.kind === "hosted" && a.hostPlacementId === id)
       .map((a) => getAppliance(catalogue, a.applianceId).id.toUpperCase());
 
+  const hostLabel = (c: Placement) => ("kind" in c && c.kind === "hosted" ? (project.modules.find((m) => m.id === c.hostPlacementId)?.moduleCode ?? "") : "");
+  const baseHex = getFinish(catalogue, inheritedFinish(project, catalogue, "B600").finishId).hex;
+  const selectAppliance = (id: string) => (e: React.PointerEvent) => {
+    if (e.button !== 0 || print) return;
+    e.stopPropagation();
+    projectStore.getState().select(id);
+    useInteraction.getState().set({ outcome: null, highlight: null });
+  };
+
   const ghostFor = (id: string) => (ghost && ghost.item.kind !== "new" && ghost.candidate.id === id ? ghost : null);
 
   const renderUnit = (u: ElevUnit) => {
@@ -298,6 +325,8 @@ export function Elevation({ wallId }: { wallId: string }) {
     const tint = isModulePlacement(p) ? getFinish(catalogue, p.finishId).hex : "#9aa3ad";
     const bodyZ0 = u.layer === "base" && u.mod ? ZONES.baseCarcass.bottom : u.z0;
     const isChimney = !isModulePlacement(p) && p.applianceId === "chimney";
+    const isFridge = !isModulePlacement(p) && p.applianceId === "fridge";
+    const isDishwasher = !isModulePlacement(p) && p.applianceId === "dishwasher";
     const labelZ = u.layer === "base" ? bodyZ0 + (u.z1 - bodyZ0) * 0.7 : u.layer === "tall" ? 1950 : (bodyZ0 + u.z1) / 2;
     const sub = hostedOn(u.id).join(" + ") || (isFiller ? "" : mm(w));
     return (
@@ -308,7 +337,7 @@ export function Elevation({ wallId }: { wallId: string }) {
         onPointerDown={(e) => onUnitPointerDown(u, e)}
         data-unit={u.id}
       >
-        {u.layer === "base" && u.mod && (
+        {u.layer === "base" && (u.mod || isDishwasher) && (
           <rect x={u.x0 + 20} y={Y(ZONES.plinth.top)} width={w - 40} height={ZONES.plinth.top} fill={C.plinth} stroke={C.line} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
         )}
         {isChimney ? (
@@ -320,10 +349,16 @@ export function Elevation({ wallId }: { wallId: string }) {
             strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
           />
+        ) : isFridge ? (
+          // Space reserved for the customer's refrigerator: an outline only.
+          <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - u.z0} fill={isSel || isBlocked ? fill : "white"} fillOpacity={isSel || isBlocked ? 1 : 0.01} stroke={stroke} strokeWidth={isSel || isBlocked ? 2 : 1.2} strokeDasharray="10 6" vectorEffect="non-scaling-stroke" />
         ) : (
           <>
-            <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - bodyZ0} fill={fill} stroke={stroke} strokeWidth={isSel || isBlocked ? 2 : 1} vectorEffect="non-scaling-stroke" />
-            {!isSel && !isBlocked && <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - bodyZ0} fill={tint} opacity={0.14} pointerEvents="none" />}
+            <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - (isDishwasher ? ZONES.plinth.top : bodyZ0)} fill={fill} stroke={stroke} strokeWidth={isSel || isBlocked ? 2 : 1} vectorEffect="non-scaling-stroke" />
+            {!isSel && !isBlocked && (
+              <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - (isDishwasher ? ZONES.plinth.top : bodyZ0)} fill={isDishwasher ? baseHex : tint} opacity={isDishwasher ? 0.3 : 0.14} pointerEvents="none" />
+            )}
+            {isDishwasher && <line x1={u.x0 + w * 0.3} y1={Y(u.z1 - 50)} x2={u.x1 - w * 0.3} y2={Y(u.z1 - 50)} stroke={C.ink2} strokeWidth={1.6} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           </>
         )}
         {isFiller && <rect x={u.x0} y={Y(u.z1)} width={w} height={u.z1 - bodyZ0} fill="url(#elev-hatch)" pointerEvents="none" />}
@@ -332,20 +367,19 @@ export function Elevation({ wallId }: { wallId: string }) {
         )}
         {!isChimney && <Fronts u={u} Y={Y} handleless={isModulePlacement(p) && p.shutterTypeId === "handleless"} />}
         {!isFiller &&
-          text((u.x0 + u.x1) / 2, Y(labelZ), isChimney ? "90 CM CHIMNEY" : u.label, w < 400 ? 8.5 : 10, {
+          text((u.x0 + u.x1) / 2, Y(isFridge ? 1200 : isDishwasher ? 500 : labelZ), isChimney ? "90 CM CHIMNEY" : isModulePlacement(p) ? u.label : u.label.toUpperCase(), w < 400 ? 8.5 : isModulePlacement(p) ? 10 : 8.5, {
             fontWeight: 600,
             fill: isBlocked ? C.bad : isSel ? C.accentInk : C.ink,
           })}
-        {!isFiller && !isChimney && text((u.x0 + u.x1) / 2, Y(labelZ) + font(12), sub, 8.5, { fill: isSel ? C.accentInk : C.faint })}
+        {!isFiller && isModulePlacement(p) && text((u.x0 + u.x1) / 2, Y(labelZ) + font(12), sub, 8.5, { fill: isSel ? C.accentInk : C.faint })}
       </g>
     );
   };
 
   const renderGhost = (g: Ghost) => {
-    if (g.candidate.wallId !== wallId) return null;
-    const c = g.candidate;
-    const height = c.layer === "loft" ? (c.moduleCode.startsWith("LS") ? 300 : 400) : 0;
-    const [z0, z1] = layerBand(c.layer, height);
+    if (g.slot.wallId !== wallId) return null;
+    const c = g.slot;
+    const [z0, z1] = g.z;
     const ok = g.status === "pass";
     const col = ok ? C.ok : C.bad;
     const x0 = c.offsetMm;
@@ -361,7 +395,7 @@ export function Elevation({ wallId }: { wallId: string }) {
     return (
       <g pointerEvents="none" data-ghost={g.status}>
         <rect x={x0} y={Y(z1)} width={c.widthMm} height={z1 - z0} fill={ok ? C.okSoft : C.badSoft} fillOpacity={0.85} stroke={col} strokeWidth={1.6} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
-        {text((x0 + x1) / 2, Y(midZ) + font(4), c.moduleCode, 10, { fill: col, fontWeight: 700 })}
+        {text((x0 + x1) / 2, Y(midZ) + font(4), g.snap === "host" ? `${g.label} → ${hostLabel(g.candidate)}` : g.label, 10, { fill: col, fontWeight: 700 })}
         {arrow(x0 - (g.gaps.left ?? 0), x0, g.gaps.left, "gl")}
         {arrow(x1, x1 + (g.gaps.right ?? 0), g.gaps.right, "gr")}
         {!ok && g.reason && (() => {
@@ -415,26 +449,35 @@ export function Elevation({ wallId }: { wallId: string }) {
     </g>
   );
 
-  const cursor = gesture.current?.kind === "unit" ? "grabbing" : dragItem?.kind === "new" ? "copy" : "default";
+  const cursor = gesture.current?.kind === "unit" ? "grabbing" : dragItem?.kind === "new" || dragItem?.kind === "newAppliance" ? "copy" : "default";
 
+  const handlers = print
+    ? {}
+    : {
+        onPointerDown,
+        onPointerMove,
+        onPointerUp,
+        onWheel: (e: React.WheelEvent) => setZoom(zoom * Math.exp(-e.deltaY * 0.0015)),
+      };
   return (
-    <div ref={boxRef} className="relative min-h-0 flex-1">
+    <div ref={boxRef} className={print ? "w-full" : "relative min-h-0 flex-1"}>
       <svg
         ref={svgRef}
-        className="absolute inset-0 size-full touch-none select-none"
+        className={print ? "block h-auto w-full" : "absolute inset-0 size-full touch-none select-none"}
         viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
-        style={{ cursor }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onWheel={(e) => setZoom(zoom * Math.exp(-e.deltaY * 0.0015))}
+        style={print ? undefined : { cursor }}
+        {...handlers}
         role="img"
         aria-label={`Elevation of Wall ${wallId}`}
-        data-elevation={wallId}
+        {...(print ? { "data-print-elevation": wallId } : { "data-elevation": wallId })}
       >
         <defs>
           <pattern id="elev-hatch" patternUnits="userSpaceOnUse" width={font(7)} height={font(7)} patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2={font(7)} stroke={C.hatch} strokeWidth={font(0.9)} />
+          </pattern>
+          <pattern id="elev-warn-hatch" patternUnits="userSpaceOnUse" width={font(6)} height={font(6)} patternTransform="rotate(45)">
+            <rect width={font(6)} height={font(6)} fill="var(--mk-warn-soft)" />
+            <line x1="0" y1="0" x2="0" y2={font(6)} stroke={C.warn} strokeWidth={font(1.4)} />
           </pattern>
         </defs>
 
@@ -495,17 +538,61 @@ export function Elevation({ wallId }: { wallId: string }) {
         {model.units.filter((u) => u.layer === "base").map(renderUnit)}
 
         {/* Fitted appliances inside tall housings */}
-        {model.fitted.map((f) => (
-          <g key={f.id} pointerEvents="none">
-            <rect x={f.x0 + 30} y={Y(f.z1)} width={f.x1 - f.x0 - 60} height={f.z1 - f.z0} fill="#e6e8ea" stroke={C.ink2} strokeWidth={0.9} vectorEffect="non-scaling-stroke" />
-            {text((f.x0 + f.x1) / 2, Y((f.z0 + f.z1) / 2) + font(3), f.label.toUpperCase(), 7, { fill: C.ink2 })}
-          </g>
-        ))}
+        {model.fitted.map((f) => {
+          const isSel = selectedId === f.id;
+          const isBad = blocked.has(f.id);
+          return (
+            <g key={f.id} className="cursor-pointer" onPointerDown={selectAppliance(f.id)} data-unit={f.id}>
+              <rect
+                x={f.x0 + 12}
+                y={Y(f.z1)}
+                width={f.x1 - f.x0 - 24}
+                height={f.z1 - f.z0}
+                fill="#2b2a27"
+                stroke={isBad ? C.bad : isSel ? C.accent : C.ink}
+                strokeWidth={isSel || isBad ? 2.4 : 1}
+                vectorEffect="non-scaling-stroke"
+              />
+              <rect x={f.x0 + 60} y={Y(f.z1) + 60} width={f.x1 - f.x0 - 120} height={f.z1 - f.z0 - 150} fill="none" stroke="#6b6863" strokeWidth={0.8} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+              {text((f.x0 + f.x1) / 2, Y((f.z0 + f.z1) / 2) + font(3), f.label.toUpperCase(), 7, { fill: "#f4f2ee", stroke: "none" })}
+            </g>
+          );
+        })}
 
         {/* Countertop and cut-outs */}
         {model.countertop.map(([a, b]) => (
           <rect key={`ct-${a}`} x={a} y={Y(ZONES.countertop.top)} width={b - a} height={ZONES.countertop.top - ZONES.countertop.bottom} fill={C.counter} pointerEvents="none" />
         ))}
+        {model.cutOuts.map((c) => {
+          const isSel = selectedId === c.id;
+          const isBad = blocked.has(c.id);
+          const col = isBad ? C.bad : isSel ? C.accent : C.ink;
+          const mid = (c.x0 + c.x1) / 2;
+          const top = ZONES.countertop.top;
+          return c.label.startsWith("Hob") ? (
+            // Hob: a black glass slab on the countertop with burner marks.
+            <g key={`app-${c.id}`} className="cursor-pointer" onPointerDown={selectAppliance(c.id)} data-unit={c.id}>
+              <rect x={c.x0 - 65} y={Y(top + 24)} width={c.x1 - c.x0 + 130} height={24} fill="#1d1c1a" stroke={col} strokeWidth={isSel || isBad ? 2.4 : 0.8} vectorEffect="non-scaling-stroke" />
+              {[-210, -70, 70, 210].map((dx) => (
+                <rect key={dx} x={mid + dx - 45} y={Y(top + 34)} width={90} height={10} rx={4} fill={isSel ? C.accent : "#55524d"} pointerEvents="none" />
+              ))}
+            </g>
+          ) : (
+            // Sink: the bowl under the countertop (dashed) and the tap above it.
+            <g key={`app-${c.id}`} className="cursor-pointer" onPointerDown={selectAppliance(c.id)} data-unit={c.id}>
+              <rect x={c.x0} y={Y(top)} width={c.x1 - c.x0} height={200} fill="white" fillOpacity={0.01} stroke={col} strokeWidth={isSel || isBad ? 2.2 : 0.9} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+              <path
+                d={`M ${mid} ${Y(top)} L ${mid} ${Y(top + 260)} L ${mid + 170} ${Y(top + 260)} L ${mid + 170} ${Y(top + 215)}`}
+                fill="none"
+                stroke={col}
+                strokeWidth={isSel || isBad ? 3 : 2}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+              <rect x={mid - 40} y={Y(top)} width={80} height={140} fill="white" fillOpacity={0} />
+            </g>
+          );
+        })}
         {model.cutOuts.map((c) => (
           <g key={c.id} pointerEvents="none">
             <rect x={c.x0} y={Y(ZONES.countertop.top) - font(5)} width={c.x1 - c.x0} height={font(5)} fill="none" stroke={C.ink2} strokeWidth={0.8} strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />
@@ -513,6 +600,55 @@ export function Elevation({ wallId }: { wallId: string }) {
             {text((c.x0 + c.x1) / 2, Y(ZONES.countertop.top) - font(9), c.label.split("|")[1], 7.5, { fill: C.ink2 })}
           </g>
         ))}
+
+        {/* While dragging a sink, hob, oven or microwave: the units here that can take it. */}
+        {dragItem?.kind === "newAppliance" &&
+          getAppliance(catalogue, dragItem.applianceId).hosted &&
+          validHosts(project, wallId, dragItem.applianceId).map((h) => {
+            const [z0, z1] = layerBand(h.layer, 720);
+            return (
+              <rect
+                key={`host-${h.id}`}
+                data-host={h.id}
+                x={h.offsetMm}
+                y={Y(z1)}
+                width={h.widthMm}
+                height={z1 - z0}
+                fill={C.okSoft}
+                fillOpacity={0.55}
+                stroke={C.ok}
+                strokeWidth={1.6}
+                strokeDasharray="5 3"
+                vectorEffect="non-scaling-stroke"
+                pointerEvents="none"
+              />
+            );
+          })}
+
+        {/* A checks-popover row pointing at a gap or a corner */}
+        {highlight && highlight.project === project && highlight.anchor.wallId === wallId && (() => {
+          const a = highlight.anchor;
+          const [z0, z1] = layerBand(a.layer, 400);
+          const x0 = a.offsetMm;
+          const w = Math.max(a.widthMm, k(6));
+          const xs = a.widthMm < k(6) ? x0 - (w - a.widthMm) / 2 : x0;
+          const atStart = a.offsetMm === 0;
+          return (
+            <g pointerEvents="none" data-highlight={highlight.kind}>
+              <rect x={xs} y={Y(z1)} width={w} height={z1 - z0} fill="url(#elev-warn-hatch)" stroke={C.warn} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+              {highlight.kind === "corner" && (
+                <path
+                  d={atStart ? `M ${k(4)} ${Y(z1) - k(18)} L ${k(4)} ${Y(z1) - k(4)} L ${k(18)} ${Y(z1) - k(4)}` : `M ${length - k(4)} ${Y(z1) - k(18)} L ${length - k(4)} ${Y(z1) - k(4)} L ${length - k(18)} ${Y(z1) - k(4)}`}
+                  fill="none"
+                  stroke={C.warn}
+                  strokeWidth={3}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+              {text(xs + w / 2, Y(z1) - font(highlight.kind === "corner" ? 24 : 8), highlight.kind === "corner" ? "CORNER" : `${mm(a.widthMm)} MM GAP`, 8.5, { fill: C.warn, fontWeight: 700 })}
+            </g>
+          );
+        })()}
 
         {ghost && renderGhost(ghost)}
 

@@ -16,7 +16,7 @@ import type {
   Room,
   Wall,
 } from "./types";
-import { COUNTERTOP_DEPTH_MM, ZONES } from "./zones";
+import { COUNTERTOP_DEPTH_MM, FITTED_BOTTOM_MM, ZONES } from "./zones";
 
 // ---------------------------------------------------------------------------
 // Walls
@@ -320,7 +320,7 @@ function applianceWallBox(project: Project, p: AppliancePlacement, cat: Catalogu
     default: {
       // Oven low, microwave above it, both flush with the front of the tall host.
       const front = hostBox.depth[1];
-      const bottom = app.id === "oven" ? 700 : 1350;
+      const bottom = FITTED_BOTTOM_MM[app.id] ?? FITTED_BOTTOM_MM.oven;
       return {
         wallId: host.wallId,
         wb: { along, depth: [front - app.depthMm, front], z: [bottom, bottom + app.heightMm] },

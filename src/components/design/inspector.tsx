@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { catalogue, getAppliance, getCarcass, getHardware, getModule, getShutterType } from "@/domain/catalogue";
 import { formatINR } from "@/domain/format";
-import { addOnTotal, moduleLine } from "@/domain/pricing";
+import { addOnTotal, appliancePrice, cutOutPrice, moduleLine } from "@/domain/pricing";
 import { firstSentence, nearestValidOffset } from "@/domain/rules";
 import { validShutterTypes } from "@/domain/rules/product";
 import type { AppliancePlacement, BlindSide, HardwareSelection, ModulePlacement } from "@/domain/types";
@@ -379,23 +379,105 @@ function ModuleInspector({ p }: { p: ModulePlacement }) {
 
 function ApplianceInspector({ a }: { a: AppliancePlacement }) {
   const spec = getAppliance(catalogue, a.applianceId);
+  const host = useProjectStore((s) => (a.kind === "hosted" ? s.project.modules.find((m) => m.id === a.hostPlacementId) : undefined));
+  const own = a.suppliedBy === "customer";
+  const price = appliancePrice(a, catalogue);
+  const cutOut = cutOutPrice(a, catalogue);
+  const options = [
+    { value: "makwana", label: "Makwana" },
+    { value: "customer", label: "Customer's own" },
+  ] as const;
   return (
-    <Section n={1} title="Appliance" aside={<span className="text-[12px] text-mk-accent-ink">Selected</span>}>
-      <div className="mb-3 text-[16px] font-semibold">{spec.name}</div>
-      <Row label="Size">
-        <span className="num">
-          {spec.widthMm} × {spec.heightMm} × {spec.depthMm} mm
-        </span>
-      </Row>
-      <Row label="Wall">{a.kind === "free" ? `Wall ${a.wallId}` : "Fitted in a unit"}</Row>
-      <Row label="Price">
-        <span className="num">{formatINR(spec.price)}</span>
-      </Row>
-      <p className="mt-3 text-[12px] text-mk-faint">Appliance placement and editing come with the appliances tab.</p>
-      <Button variant="outline" className="mt-3 h-[38px] w-full gap-2 text-mk-bad" onClick={() => projectStore.getState().removeAppliance(a.id)}>
-        <Trash2 className="size-4" /> Remove appliance
-      </Button>
-    </Section>
+    <>
+      <Section n={1} title="Appliance" aside={<span className="text-[12px] text-mk-accent-ink">Selected</span>}>
+        <div className="mb-3 text-[16px] font-semibold">{spec.name}</div>
+        <Row label="Size">
+          <span className="num">
+            {spec.widthMm} × {spec.heightMm} × {spec.depthMm} mm
+          </span>
+        </Row>
+        {spec.cutOut && (
+          <Row label="Cut-out">
+            <span className="num">
+              {spec.cutOut.widthMm} × {spec.cutOut.depthMm} mm
+            </span>
+          </Row>
+        )}
+        {a.kind === "hosted" ? (
+          <Row label="Fitted in">
+            {host ? (
+              <button
+                type="button"
+                className="font-medium text-mk-accent-ink hover:underline"
+                onClick={() => projectStore.getState().select(host.id)}
+                data-host-link
+              >
+                <span className="num">{host.moduleCode}</span> · Wall {host.wallId}
+              </button>
+            ) : (
+              <span className="text-mk-bad">No unit</span>
+            )}
+          </Row>
+        ) : (
+          <Row label="Wall">
+            <span className="num">
+              Wall {a.wallId} · {a.offsetMm} mm
+            </span>
+          </Row>
+        )}
+      </Section>
+
+      <Section n={2} title="Supply">
+        <div className="flex items-center justify-between gap-3 text-[13px]">
+          <span className="text-mk-muted">Supplied by</span>
+          <span className="inline-flex rounded-lg bg-mk-subtle p-0.5" role="radiogroup" aria-label="Supplied by">
+            {options.map((o) => {
+              const active = (a.suppliedBy ?? "makwana") === o.value;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => projectStore.getState().setSuppliedBy(a.id, o.value)}
+                  className={cn("h-7 rounded-md px-2.5 text-[12.5px]", active ? "bg-mk-panel font-medium shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-mk-ink-2 hover:text-mk-ink")}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </span>
+        </div>
+        <div className="mt-3 space-y-1 text-[12.5px]">
+          <div className="flex justify-between text-mk-muted">
+            <span>{spec.name}</span>
+            <span className="num">{own ? "Customer's own · ₹0" : formatINR(spec.price)}</span>
+          </div>
+          {cutOut > 0 && (
+            <div className="flex justify-between text-mk-muted">
+              <span>Countertop cut-out</span>
+              <span className="num">{formatINR(cutOut)}</span>
+            </div>
+          )}
+        </div>
+        <div className="mt-3 flex items-baseline justify-between">
+          <span className="text-[14px] font-medium">Price</span>
+          <span className="num text-[22px] font-semibold tracking-tight" data-appliance-price>
+            {formatINR(price + cutOut)}
+          </span>
+        </div>
+      </Section>
+
+      <div className="px-5 py-4">
+        <Button
+          variant="outline"
+          className="h-[38px] w-full gap-2 border-mk-line text-mk-bad hover:bg-mk-bad-soft hover:text-mk-bad"
+          onClick={() => projectStore.getState().removeAppliance(a.id)}
+        >
+          <Trash2 className="size-4" /> Remove {spec.name.toLowerCase()}
+        </Button>
+      </div>
+    </>
   );
 }
 

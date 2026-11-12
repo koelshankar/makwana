@@ -138,3 +138,10 @@
   font-family: var(--font-geist-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* Toasts are screen-only: never print them onto the quote PDF. */
+@media print {
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+}

@@ -1,7 +1,8 @@
 import { produce } from "immer";
-import { FILLER_MAX_MM, getModule } from "./catalogue";
+import { FILLER_MAX_MM, getAppliance, getModule } from "./catalogue";
+import { inheritedFinish } from "./finish-defaults";
 import { defaultBlindSide, isModulePlacement } from "./geometry";
-import type { Catalogue, FixAction, ModulePlacement, Placement, Project } from "./types";
+import type { AppliancePlacement, Catalogue, FixAction, HostedAppliancePlacement, ModulePlacement, Placement, Project } from "./types";
 
 /** Adds a placement, or replaces the one with the same id. Pure. */
 export function withPlacement(project: Project, placement: Placement): Project {
@@ -59,6 +60,50 @@ export function applyFix(project: Project, cat: Catalogue, action: FixAction): P
         isCustomSize: false,
       };
       return withPlacement(project, filler);
+    }
+
+    case "placeHostWithAppliance": {
+      const mod = getModule(cat, action.moduleCode);
+      if (mod.layer === "any" || !mod.hosts?.includes(action.applianceId)) throw new Error(`${mod.code} can't take a ${action.applianceId}`);
+      const host: ModulePlacement = {
+        id: uniqueId(project, `m-${mod.code.toLowerCase()}`),
+        moduleCode: mod.code,
+        wallId: action.wallId,
+        layer: mod.layer,
+        offsetMm: action.offsetMm,
+        widthMm: mod.widthMm,
+        carcassId: cat.carcasses[0].id,
+        ...inheritedFinish(project, cat, mod.code),
+        hardware: [],
+        isCustomSize: false,
+      };
+      if (mod.hasBlindSide) host.blindSide = defaultBlindSide(project.room, host.wallId, host.offsetMm, host.widthMm);
+      const loose = action.placementId ? project.appliances.find((a) => a.id === action.placementId) : undefined;
+      const fitted: HostedAppliancePlacement = {
+        kind: "hosted",
+        id: loose?.id ?? uniqueId(project, `a-${action.applianceId}`),
+        applianceId: action.applianceId,
+        hostPlacementId: host.id,
+        ...(loose?.suppliedBy ? { suppliedBy: loose.suppliedBy } : {}),
+      };
+      return withPlacement(withPlacement(project, host), fitted);
+    }
+
+    case "attach": {
+      const a = project.appliances.find((x) => x.id === action.placementId);
+      const host = project.modules.find((m) => m.id === action.hostPlacementId);
+      if (!a || !host) throw new Error("Unknown appliance or host");
+      if (!getModule(cat, host.moduleCode).hosts?.includes(a.applianceId)) {
+        throw new Error(`${host.moduleCode} can't take a ${getAppliance(cat, a.applianceId).name}`);
+      }
+      const fitted: AppliancePlacement = {
+        kind: "hosted",
+        id: a.id,
+        applianceId: a.applianceId,
+        hostPlacementId: host.id,
+        ...(a.suppliedBy ? { suppliedBy: a.suppliedBy } : {}),
+      };
+      return withPlacement(project, fitted);
     }
 
     default:

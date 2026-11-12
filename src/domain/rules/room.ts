@@ -24,7 +24,7 @@ export function coversWindowRule(project: Project, cat: Catalogue, opts: RuleOpt
   const results: CheckResult[] = [];
   for (const win of ctx.windows) {
     for (const e of ctx.entries) {
-      if (!e.slot || !e.wb || e.slot.layer === "base" || e.slot.wallId !== win.wallId) continue;
+      if (!e.slot || !e.wb || e.hosted || e.slot.layer === "base" || e.slot.wallId !== win.wallId) continue;
       const winRange: [number, number] = [win.offsetMm, win.offsetMm + win.widthMm];
       if (!rangesOverlap(e.wb.along, winRange) || !rangesOverlap(e.wb.z, [win.sillMm, win.topMm])) continue;
       const kind = kindLabel(ctx, e.id);

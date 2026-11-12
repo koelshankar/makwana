@@ -128,7 +128,7 @@ describe("persistence", () => {
     a.getState().setProjectInfo({ customerName: "Priya Shah" });
     const saved = JSON.parse(mem.data.get(PERSIST_KEY)!);
     expect(saved.version).toBe(PERSIST_VERSION);
-    expect(Object.keys(saved.state)).toEqual(["project"]);
+    expect(Object.keys(saved.state)).toEqual(["project", "settings"]);
 
     const b = createProjectStore(sampleDesign, mem.storage);
     await b.persist.rehydrate();
@@ -183,7 +183,7 @@ describe("UI slice", () => {
 
     store.getState().setCeiling(2800);
     const saved = JSON.parse(data.get(PERSIST_KEY)!);
-    expect(Object.keys(saved.state)).toEqual(["project"]);
+    expect(Object.keys(saved.state)).toEqual(["project", "settings"]);
 
     store.getState().undo();
     expect(store.getState().ui.activeWallId).toBe("C");
@@ -265,5 +265,125 @@ describe("undo granularity", () => {
     expect(store.getState().project.appliances.some((a) => a.id === "a-oven")).toBe(false);
     store.getState().undo();
     expect(store.getState().project).toBe(sampleDesign);
+  });
+});
+
+describe("appliances in the store", () => {
+  it("removing a host removes its fitted appliances in one step; one undo restores both", () => {
+    const store = createProjectStore(sampleDesign);
+    const steps = store.getState().past.length;
+    store.getState().removePlacement("m-sink");
+    const after = store.getState().project;
+    expect(after.modules.some((m) => m.id === "m-sink")).toBe(false);
+    expect(after.appliances.some((a) => a.id === "a-sink")).toBe(false);
+    expect(store.getState().past.length).toBe(steps + 1);
+    store.getState().undo();
+    expect(store.getState().project).toBe(sampleDesign);
+  });
+
+  it("a loose sink placed with the composite fix adds the sink unit and the sink as one step", () => {
+    const store = createProjectStore(emptyMehta);
+    const res = store.getState().tryPlaceAppliance({ kind: "free", applianceId: "sink", wallId: "A", layer: "base", offsetMm: 1210 });
+    expect(res.ok).toBe(false);
+    expect(store.getState().past).toHaveLength(0);
+    const fix = res.results[0].fixes[0];
+    const placed = store.getState().placeWithFix({ kind: "free", id: res.id, applianceId: "sink", wallId: "A", layer: "base", offsetMm: 1210 }, fix);
+    expect(placed.ok).toBe(true);
+    const { project, past, ui } = store.getState();
+    expect(past).toHaveLength(1);
+    expect(project.modules.map((m) => m.moduleCode)).toEqual(["SU900"]);
+    expect(project.appliances).toEqual([{ kind: "hosted", id: res.id, applianceId: "sink", hostPlacementId: project.modules[0].id }]);
+    expect(ui.selectedPlacementId).toBe(res.id);
+    store.getState().undo();
+    expect(store.getState().project).toBe(emptyMehta);
+  });
+
+  it("fitting an appliance selects it; supplied-by is one undoable step", () => {
+    const store = createProjectStore({ ...emptyMehta, modules: [unit("su", "SU900", "A", 1200, 900)] });
+    const res = store.getState().tryPlaceAppliance({ kind: "hosted", applianceId: "sink", hostPlacementId: "su" });
+    expect(res.ok).toBe(true);
+    expect(store.getState().ui.selectedPlacementId).toBe(res.id);
+    const steps = store.getState().past.length;
+    store.getState().setSuppliedBy(res.id, "customer");
+    expect(store.getState().project.appliances[0].suppliedBy).toBe("customer");
+    store.getState().setSuppliedBy(res.id, "customer");
+    expect(store.getState().past.length).toBe(steps + 1);
+    store.getState().undo();
+    expect(store.getState().project.appliances[0].suppliedBy).toBeUndefined();
+  });
+});
+
+describe("quote workflow in the store", () => {
+  const clock = () => "2026-10-09T10:30:00.000Z";
+  const quoted = () => {
+    const store = createProjectStore(sampleDesign, undefined, clock);
+    store.getState().ensureQuote();
+    return store;
+  };
+
+  it("assigns the quote number once and moves the sequence on; never an undo step", () => {
+    const store = quoted();
+    expect(store.getState().project.quote!.number).toBe("MMK-AND-2026-0147");
+    expect(store.getState().settings.nextQuoteSeq).toBe(148);
+    store.getState().ensureQuote();
+    expect(store.getState().settings.nextQuoteSeq).toBe(148);
+    expect(store.getState().past).toHaveLength(0);
+  });
+
+  it("logs discount changes; above 5% needs approval", () => {
+    const store = quoted();
+    store.getState().setDiscount(5);
+    store.getState().setDiscount(8);
+    const log = store.getState().project.activity!.filter((a) => a.action === "discount_changed").map((a) => a.detail);
+    expect(log).toEqual(["Discount 0% → 5% · within salesperson limit", "Discount 5% → 8% · needs manager approval"]);
+    expect(store.getState().past).toHaveLength(2);
+  });
+
+  it("a design change while approved returns to draft as version 2, in the same undo step; undo keeps the paperwork", () => {
+    const store = quoted();
+    const s = () => store.getState();
+    s().sendForApproval();
+    s().setRole("manager");
+    s().approve();
+    expect(s().project.quote!.approvedBy).toBe("Store Manager");
+    s().setRole("salesperson");
+    const steps = s().past.length;
+    s().updatePlacement("m-hob", { finishId: "laminate-walnut" });
+    expect(s().project.status).toBe("draft");
+    expect(s().project.quote!.version).toBe(2);
+    expect(s().ui.returnedToDraft).toEqual({ version: 2, n: 1 });
+    expect(s().past.length).toBe(steps + 1);
+    expect(s().project.activity!.slice(-2).map((a) => a.action)).toEqual(["returned_to_draft", "version_created"]);
+    s().undo();
+    expect(s().project.modules.find((m) => m.id === "m-hob")!.finishId).toBe("matte-sage");
+    expect(s().project.status).toBe("draft");
+    expect(s().project.quote!.version).toBe(2);
+  });
+
+  it("sent back with a comment by the manager; role and approval mode survive loading a project", () => {
+    const store = quoted();
+    store.getState().sendForApproval();
+    store.getState().setRole("manager");
+    store.getState().sendBack("Please check the sink position");
+    expect(store.getState().project.quote!.sentBack!.comment).toBe("Please check the sink position");
+    expect(store.getState().project.activity!.at(-1)!.by).toBe("Store Manager");
+    store.getState().setApprovalMode("flagged");
+    store.getState().loadProject(emptyMehta);
+    expect(store.getState().settings).toMatchObject({ role: "manager", approvalMode: "flagged" });
+  });
+});
+
+describe("undo after approval", () => {
+  it("undoing a design change on an approved quote returns it to draft as a new version", () => {
+    const store = createProjectStore(sampleDesign, undefined, () => "2026-10-09T10:30:00.000Z");
+    const s = () => store.getState();
+    s().ensureQuote();
+    s().setDiscount(5);
+    s().sendForApproval();
+    s().approve();
+    s().undo();
+    expect(s().project.discountPct).toBe(0);
+    expect(s().project.status).toBe("draft");
+    expect(s().project.quote!.version).toBe(2);
   });
 });

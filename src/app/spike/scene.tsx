@@ -7,5 +7,5 @@ import { useBlockedIds, useProjectStore } from "@/store/project-store";
 export default function Scene() {
   const project = useProjectStore((s) => s.project);
   const blocked = useBlockedIds();
-  return <KitchenScene project={project} selectedId={null} blockedIds={blocked} />;
+  return <KitchenScene project={project} selectedId={null} blockedIds={blocked} interactive={false} />;
 }

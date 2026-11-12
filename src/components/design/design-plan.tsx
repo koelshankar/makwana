@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { isRoomClosed, roomOutline, wallFrames } from "@/domain/geometry";
+import { catalogue, getAppliance } from "@/domain/catalogue";
+import { countertopOutline, isRoomClosed, roomOutline, wallFrames } from "@/domain/geometry";
 import type { Layer } from "@/domain/types";
 import { WALL_THICKNESS_MM } from "@/domain/zones";
 import { ZoomControls } from "@/components/setup/plan/plan-toolbar";
@@ -14,12 +15,15 @@ import { useInteraction } from "./interaction";
 /** Footprint colours by layer; uppers are drawn dashed over the base run, as on drawings. */
 export const LAYER_FILL: Record<Layer, string> = { base: "#cdd8c6", tall: "#77736d", wall: "#f3eee3", loft: "#e7dfcf" };
 const LAYER_ORDER: Layer[] = ["tall", "base", "wall", "loft"];
+const NO_DIMS = { lines: [], inline: [] };
 
-/** Top view with every unit's footprint. Click to select; no dragging in plan. */
-export function DesignPlan() {
+/** Top view with every unit's footprint. Click to select; no dragging in plan. `readOnly` for the quote and print. */
+export function DesignPlan({ readOnly = false, showDims = true }: { readOnly?: boolean; showDims?: boolean }) {
   const project = useProjectStore((s) => s.project);
-  const selectedId = useProjectStore((s) => s.ui.selectedPlacementId);
-  const activeWallId = useProjectStore((s) => s.ui.activeWallId);
+  const liveSelected = useProjectStore((s) => s.ui.selectedPlacementId);
+  const liveWall = useProjectStore((s) => s.ui.activeWallId);
+  const selectedId = readOnly ? null : liveSelected;
+  const activeWallId = readOnly ? null : liveWall;
   const boxes = useWorldBoxes();
   const blocked = useBlockedIds();
   const room = project.room;
@@ -31,6 +35,7 @@ export function DesignPlan() {
   const { boxRef, svgRef, setView, zoom, cx, cy, vb, px, zoomAt, toWorld } = usePlanViewport(fit);
   const pan = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
 
+  const counter = useMemo(() => countertopOutline(project, catalogue), [project]);
   const placements = useMemo(() => {
     const list = [...project.modules.map((m) => ({ id: m.id, layer: m.layer, label: m.moduleCode }))];
     for (const a of project.appliances) if (a.kind === "free") list.push({ id: a.id, layer: a.layer, label: a.applianceId });
@@ -44,6 +49,7 @@ export function DesignPlan() {
         className="absolute inset-0 size-full touch-none select-none"
         viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
         onPointerDown={(e) => {
+          if (readOnly) return;
           svgRef.current!.setPointerCapture(e.pointerId);
           pan.current = { x: e.clientX, y: e.clientY, cx, cy, moved: false };
         }}
@@ -60,7 +66,7 @@ export function DesignPlan() {
           if (pan.current && !pan.current.moved) projectStore.getState().select(null);
           pan.current = null;
         }}
-        onWheel={(e) => zoomAt(Math.exp(-e.deltaY * 0.0015), toWorld(e))}
+        onWheel={(e) => !readOnly && zoomAt(Math.exp(-e.deltaY * 0.0015), toWorld(e))}
         role="img"
         aria-label="Plan with units"
       >
@@ -68,7 +74,7 @@ export function DesignPlan() {
           room={room}
           frames={frames}
           outline={outline}
-          dims={dims}
+          dims={showDims ? dims : NO_DIMS}
           vb={vb}
           px={px}
           closed={isRoomClosed(room)}
@@ -95,9 +101,10 @@ export function DesignPlan() {
                 strokeWidth={isSel || isBlocked ? 2 : 0.9}
                 strokeDasharray={upper ? "5 3" : undefined}
                 vectorEffect="non-scaling-stroke"
-                className="cursor-pointer"
-                onPointerDown={(e) => e.stopPropagation()}
+                className={readOnly ? undefined : "cursor-pointer"}
+                onPointerDown={(e) => !readOnly && e.stopPropagation()}
                 onClick={() => {
+                  if (readOnly) return;
                   projectStore.getState().select(p.id);
                   useInteraction.getState().set({ outcome: null });
                 }}
@@ -106,9 +113,60 @@ export function DesignPlan() {
               </rect>
             );
           })}
+          {/* Countertop over the base run, with the sink and hob cut-outs */}
+          {counter.slabs.map((sl) => (
+            <rect
+              key={`${sl.wallId}-${sl.rect.minX}-${sl.rect.minY}`}
+              x={sl.rect.minX}
+              y={sl.rect.minY}
+              width={sl.rect.maxX - sl.rect.minX}
+              height={sl.rect.maxY - sl.rect.minY}
+              fill="#2b2a27"
+              fillOpacity={0.14}
+              stroke="#2b2a27"
+              strokeWidth={0.9}
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />
+          ))}
+          {counter.cutOuts.map((c) => {
+            const isSel = c.placementId === selectedId;
+            const spec = getAppliance(catalogue, c.applianceId);
+            const w = c.rect.maxX - c.rect.minX;
+            const h = c.rect.maxY - c.rect.minY;
+            return (
+              <g
+                key={c.placementId}
+                data-cutout={c.applianceId}
+                className={readOnly ? undefined : "cursor-pointer"}
+                onPointerDown={(e) => !readOnly && e.stopPropagation()}
+                onClick={() => {
+                  if (readOnly) return;
+                  projectStore.getState().select(c.placementId);
+                  useInteraction.getState().set({ outcome: null });
+                }}
+              >
+                <rect
+                  x={c.rect.minX}
+                  y={c.rect.minY}
+                  width={w}
+                  height={h}
+                  rx={c.applianceId === "sink" ? 40 : 0}
+                  fill={isSel ? "var(--mk-accent-soft)" : "white"}
+                  stroke={isSel ? "var(--mk-accent)" : "#2b2a27"}
+                  strokeWidth={isSel ? 2 : 1}
+                  strokeDasharray="6 4"
+                  vectorEffect="non-scaling-stroke"
+                />
+                <text x={c.rect.minX + w / 2} y={c.rect.minY + h / 2} fontSize={px * 9.5} textAnchor="middle" dominantBaseline="middle" className="num" fill="#5d5a55" pointerEvents="none">
+                  {c.applianceId === "sink" ? "SINK" : "HOB"} {spec.cutOut!.widthMm}×{spec.cutOut!.depthMm}
+                </text>
+              </g>
+            );
+          })}
         </PlanBase>
       </svg>
-      <div className="absolute right-3 bottom-3">
+      <div className={readOnly ? "hidden" : "absolute right-3 bottom-3"}>
         <ZoomControls percent={Math.round(zoom * 100)} onZoomIn={() => zoomAt(1.25)} onZoomOut={() => zoomAt(0.8)} onFit={() => setView(null)} />
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { FILLER_MAX_MM, getModule, moduleInFamily } from "../catalogue";
-import { isModulePlacement, isRoomClosed, signedArea, wallSegments, worldToWall } from "../geometry";
+import { isModulePlacement, isRoomClosed, LAYER_DEPTH_MM, signedArea, wallSegments, worldToWall } from "../geometry";
 import type { BlindSide, Catalogue, CheckResult, Fix, Layer, ModulePlacement, Project } from "../types";
 import {
   boxesOverlap,
@@ -60,7 +60,7 @@ export function outsideWallRule(project: Project, cat: Catalogue, opts: RuleOpti
   const ctx = getContext(project, cat);
   const results: CheckResult[] = [];
   for (const e of ctx.entries) {
-    if (!e.slot) continue;
+    if (!e.slot || e.hosted) continue;
     const frame = ctx.frameById.get(e.slot.wallId);
     if (!frame) {
       results.push({
@@ -185,6 +185,7 @@ export function leftoverGapRule(project: Project, cat: Catalogue): CheckResult[]
           placementIds: [prevOwn?.placementId, nextOwn?.placementId].filter((id): id is string => !!id),
           message,
           fixes,
+          anchor: { wallId: frame.wallId, layer, offsetMm: g.from, widthMm: width },
         });
       }
     }
@@ -226,6 +227,11 @@ export function cornerRule(project: Project, cat: Catalogue): CheckResult[] {
         .filter((x) => x.dist < CORNER_REACH_MM)
         .sort((a, b) => a.dist - b.dist);
     };
+    // The corner square on the first wall: where the elevation marks the issue.
+    const f1 = ctx.frameById.get(s1.wallId)!;
+    const atStart = worldToWall(f1, corner).offsetMm === 0;
+    const reach = Math.min(f1.lengthMm, LAYER_DEPTH_MM.base);
+    const anchor = { wallId: s1.wallId, layer: "base" as const, offsetMm: atStart ? 0 : f1.lengthMm - reach, widthMm: reach };
     const near1 = nearCorner(s1.wallId);
     const near2 = nearCorner(s2.wallId);
     if (!near1.length || !near2.length) continue;
@@ -244,6 +250,7 @@ export function cornerRule(project: Project, cat: Catalogue): CheckResult[] {
         placementIds: [b.e.id],
         message: `${b.e.label} on ${wallName(b.e.slot!.wallId)} has its blind side facing away from the corner. Flip it so the blind section sits in the corner.`,
         fixes: [{ label: `Make the blind side ${side}`, action: { type: "setBlindSide", placementId: b.e.id, blindSide: side } }],
+        anchor,
       });
       continue;
     }
@@ -260,6 +267,7 @@ export function cornerRule(project: Project, cat: Catalogue): CheckResult[] {
         label: `Replace ${u.e.label} on ${wallName(u.e.slot!.wallId)} with BC1000 in the corner`,
         action: { type: "replaceAndMove" as const, placementId: u.e.id, moduleCode: "BC1000", offsetMm: u.cornerSide === "left" ? 0 : u.wallLength - 1000 },
       })),
+      anchor,
     });
   }
   return results.length ? results : [pass("corner", "fit", "Corners are handled")];

@@ -1,6 +1,6 @@
 import { getAppliance, getCarcass, getFinish, getHardware, getModule, getShutterType } from "../catalogue";
 import { countertopOutline, rectArea } from "../geometry";
-import type { Catalogue, Layer, ModulePlacement, Project } from "../types";
+import type { AppliancePlacement, Catalogue, Layer, ModulePlacement, Project } from "../types";
 
 export const MM2_PER_SQFT = 92903.04; // 304.8²
 
@@ -170,6 +170,17 @@ function hardwareLines(project: Project, cat: Catalogue): PriceLine[] {
   return [...lines, ...included];
 }
 
+/** What an appliance itself costs: nothing if the customer supplies it. Its cut-out is charged either way. */
+export function appliancePrice(a: AppliancePlacement, cat: Catalogue): number {
+  return a.suppliedBy === "customer" ? 0 : getAppliance(cat, a.applianceId).price;
+}
+
+/** Cut-out charge for a fitted sink or hob, 0 otherwise. */
+export function cutOutPrice(a: AppliancePlacement, cat: Catalogue): number {
+  const spec = getAppliance(cat, a.applianceId);
+  return a.kind === "hosted" && spec.cutOut ? spec.cutOut.price : 0;
+}
+
 function applianceLines(project: Project, cat: Catalogue): PriceLine[] {
   const lines: PriceLine[] = [];
   for (const a of project.appliances) {
@@ -179,13 +190,13 @@ function applianceLines(project: Project, cat: Catalogue): PriceLine[] {
       group: "appliances",
       placementId: a.id,
       code: spec.id,
-      description: spec.name,
+      description: a.suppliedBy === "customer" ? `${spec.name} (customer's own)` : spec.name,
       widthMm: spec.widthMm,
       heightMm: spec.heightMm,
       depthMm: spec.depthMm,
       qty: 1,
       included: false,
-      amount: spec.price,
+      amount: appliancePrice(a, cat),
     });
     if (a.kind === "hosted" && spec.cutOut) {
       lines.push({

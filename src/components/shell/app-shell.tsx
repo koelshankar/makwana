@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { toast } from "sonner";
 import { projectStore, useHydrated } from "@/store/project-store";
 import { ShellSkeleton } from "./shell-skeleton";
 import { TopBar } from "./top-bar";
@@ -29,6 +30,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // An edit to a quote awaiting or holding approval sends it back to draft: say so, wherever it happened.
+  useEffect(
+    () =>
+      projectStore.subscribe((s, prev) => {
+        const r = s.ui.returnedToDraft;
+        if (r && r !== prev.ui.returnedToDraft) {
+          toast.warning(`Quote returned to draft — approval needed again (Version ${r.version})`, { id: "returned-to-draft" });
+        }
+      }),
+    [],
+  );
 
   // Nothing that reads the project renders until the saved one is restored: no flash of the seed.
   if (!hydrated) return <ShellSkeleton />;

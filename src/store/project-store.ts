@@ -6,11 +6,13 @@ import { createStore } from "zustand/vanilla";
 import { catalogue, getModule } from "@/domain/catalogue";
 import { applyFix, withPlacement, withoutPlacement } from "@/domain/fixes";
 import { finishGroup, inheritedFinish, type FinishChoice, type FinishGroup } from "@/domain/finish-defaults";
-import { defaultBlindSide, findPlacement, placementToWorldBox, type WorldBox } from "@/domain/geometry";
+import { defaultBlindSide, findPlacement, isModulePlacement, placementToWorldBox, type WorldBox } from "@/domain/geometry";
 import { priceProject } from "@/domain/pricing";
-import { checkCandidate, hasBlocked, runAllChecks, runRawChecks } from "@/domain/rules";
+import { checkCandidate, hasBlocked, issueKey, runAllChecks, runRawChecks } from "@/domain/rules";
 import { validateRoom } from "@/domain/room-validation";
+import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
 import { sampleDesign } from "@/domain/seed";
+import type { WallHeightMode } from "@/domain/three-model";
 import type {
   AppliancePlacement,
   CheckResult,
@@ -18,8 +20,10 @@ import type {
   Fix,
   Heading,
   ModulePlacement,
+  Placement,
   Project,
   ProjectStatus,
+  SuppliedBy,
   Wall,
 } from "@/domain/types";
 
@@ -29,6 +33,7 @@ export type NewFeature = DistributiveOmit<Feature, "id">;
 export type FeaturePatch = Partial<DistributiveOmit<Feature, "id" | "kind">>;
 export type NewModule = Omit<ModulePlacement, "id"> & { id?: string };
 export type NewAppliance = DistributiveOmit<AppliancePlacement, "id"> & { id?: string };
+export type NewPlacement = NewModule | NewAppliance;
 export type NewWall = Omit<Wall, "id">;
 export type PlacementPatch = Partial<Pick<ModulePlacement, "carcassId" | "finishId" | "shutterTypeId" | "hardware" | "blindSide">>;
 export type ProjectInfo = Partial<Pick<Project, "name" | "customerName" | "siteAddress" | "kitchenType">>;
@@ -55,7 +60,30 @@ export interface UiState {
   elevationZoom: number;
   /** Last finish/shutter chosen per group; new units inherit it. */
   recentFinish: Partial<Record<FinishGroup, FinishChoice>>;
+  /** 3D walls: cut low so the kitchen shows from any angle, or full height. */
+  wallHeight: WallHeightMode;
+  /** The 3D view fills the screen for the customer, with only view controls. */
+  customerView: boolean;
+  /** The Quote screen's 3D picture at the iso preset, handed to the print page. Never persisted. */
+  snapshot: string | null;
+  /** Set when an edit sends a pending or approved quote back to draft, for the toast. */
+  returnedToDraft: { version: number; n: number } | null;
 }
+
+/**
+ * Demo settings: who is using the app and how approval works. Kept when a project is loaded and
+ * persisted with it, never in undo history.
+ */
+export interface Settings {
+  role: Role;
+  approvalMode: ApprovalMode;
+  /** Next quote sequence number for this store. */
+  nextQuoteSeq: number;
+}
+
+export type Role = "salesperson" | "manager";
+
+export const initialSettings: Settings = { role: "salesperson", approvalMode: "always", nextQuoteSeq: 147 };
 
 export const initialUi: UiState = {
   selectedPlacementId: null,
@@ -63,11 +91,16 @@ export const initialUi: UiState = {
   designTab: "wall",
   elevationZoom: 1,
   recentFinish: {},
+  wallHeight: "cut",
+  customerView: false,
+  snapshot: null,
+  returnedToDraft: null,
 };
 
 export interface ProjectState {
   project: Project;
   ui: UiState;
+  settings: Settings;
   /** Undo/redo snapshots of `project`. Immer's structural sharing keeps these cheap. */
   past: Project[];
   future: Project[];
@@ -94,27 +127,45 @@ export interface ProjectState {
   /** Commits only if nothing is blocked; returns the check results either way. */
   tryPlaceModule: (module: NewModule) => PlaceResult;
   /**
-   * Places (or moves) a unit and applies one of its suggested fixes, as one undoable step.
-   * Commits only if nothing involving the unit is still blocked afterwards.
+   * Places (or moves) a unit or appliance and applies one of its suggested fixes, as one
+   * undoable step. Commits only if nothing involving it is still blocked afterwards and the fix
+   * added no new blocked issue (a fix may place a host unit too).
    */
-  placeWithFix: (module: NewModule, fix: Fix) => PlaceResult;
+  placeWithFix: (candidate: NewPlacement, fix: Fix) => PlaceResult;
   /** Same behaviour as tryPlaceModule. Fitted appliances move with their host. */
   movePlacement: (id: string, wallId: string, offsetMm: number) => PlaceResult;
   /** Finish, shutter, hardware and blind side. Returns false if a hardware item isn't allowed on the module. */
   updatePlacement: (id: string, patch: PlacementPatch) => boolean;
   removePlacement: (id: string) => void;
+  /** Same behaviour as tryPlaceModule, for a fitted (hosted) or free appliance. */
   tryPlaceAppliance: (appliance: NewAppliance) => PlaceResult;
   removeAppliance: (id: string) => void;
+  setSuppliedBy: (id: string, by: SuppliedBy) => void;
 
   applyFix: (fix: Fix) => void;
+  /** Logged; above the salesperson limit it raises the approval check. */
   setDiscount: (pct: number) => void;
   setStatus: (status: ProjectStatus) => void;
+
+  // Quote workflow. These never enter undo history: undo changes the design, not the paperwork.
+  /** Gives the project its quote number (version 1) the first time it reaches the Quote screen. */
+  ensureQuote: () => void;
+  sendForApproval: () => void;
+  approve: () => void;
+  /** Needs a comment; the salesperson sees it as a banner. */
+  sendBack: (comment: string) => void;
+  markShared: (how: string) => void;
+  setRole: (role: Role) => void;
+  setApprovalMode: (mode: ApprovalMode) => void;
+  setSnapshot: (dataUrl: string | null) => void;
   /** Selects a unit and makes its wall the active elevation. */
   select: (id: string | null) => void;
   /** Shows a wall's elevation. */
   showWall: (wallId: string) => void;
   setDesignTab: (tab: DesignTab) => void;
   setElevationZoom: (zoom: number) => void;
+  setWallHeight: (mode: WallHeightMode) => void;
+  setCustomerView: (on: boolean) => void;
   /** Finish and shutter for a new unit of this module, inherited from its group. */
   finishFor: (moduleCode: string) => FinishChoice;
 }
@@ -161,22 +212,71 @@ const browserStorage = () => (typeof window === "undefined" ? noStorage : window
 export const PERSIST_KEY = "makwana:project";
 export const PERSIST_VERSION = 2;
 
-export function createProjectStore(initial: Project, storage: () => StateStorage = () => noStorage) {
+export function createProjectStore(initial: Project, storage: () => StateStorage = () => noStorage, now: () => string = () => new Date().toISOString()) {
   return createStore<ProjectState>()(
     persist(
       immer((set, get) => {
         /** Applies an undoable project edit; records history only if the project changed. */
+        /** The person acting now, for the activity log. */
+        const actor = () => (get().settings.role === "manager" ? MANAGER_NAME : get().project.preparedBy);
+
+        /** Workflow change outside undo history. */
+        const workflow = (fn: (project: Project) => Project) => {
+          const next = fn(get().project);
+          if (next === get().project) return;
+          set((s) => {
+            s.project = next;
+          });
+        };
+
+        /**
+         * Applies an undoable project edit; records history only if the project changed. A change to
+         * the design, room or discount of a pending or approved quote sends it back to draft (a new
+         * version if it was approved), in the same step.
+         */
         const edit = (fn: (project: Project) => void) => {
           const before = get().project;
           set((s) => {
             fn(s.project);
           });
-          if (get().project === before) return;
+          const after = get().project;
+          if (after === before) return;
+          if (before.status !== "draft" && designChanged(before, after)) {
+            const back = returnToDraft(after, now(), actor());
+            set((s) => {
+              s.project = back;
+              s.ui.returnedToDraft = { version: back.quote?.version ?? 1, n: (s.ui.returnedToDraft?.n ?? 0) + 1 };
+            });
+          }
           set((s) => {
             s.past.push(before);
             if (s.past.length > HISTORY_LIMIT) s.past.shift();
             s.future = [];
           });
+        };
+
+        /**
+         * Undo and redo restore the design but keep the quote's status, version and log as they are
+         * now; if that changes the design of a pending or approved quote, it goes back to draft.
+         */
+        const keepWorkflow = (snapshot: Project, current: Project): Project => {
+          const { quote, activity, status } = current;
+          if (snapshot.quote === quote && snapshot.activity === activity && snapshot.status === status) return snapshot;
+          let out: Project = { ...snapshot, status };
+          if (quote) out.quote = quote;
+          else delete out.quote;
+          if (activity) out.activity = activity;
+          else delete out.activity;
+          if (status !== "draft" && designChanged(current, out)) {
+            out = returnToDraft(out, now(), actor());
+            const version = out.quote?.version ?? 1;
+            queueMicrotask(() =>
+              set((s) => {
+                s.ui.returnedToDraft = { version, n: (s.ui.returnedToDraft?.n ?? 0) + 1 };
+              }),
+            );
+          }
+          return out;
         };
         /** Replaces the project as one undoable step. */
         const replace = (next: Project) => edit((draft) => Object.assign(draft, next));
@@ -211,6 +311,7 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
         return {
           project: initial,
           ui: initialUi,
+          settings: initialSettings,
           past: [],
           future: [],
 
@@ -226,7 +327,7 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             if (!past.length) return;
             set((s) => {
               s.future.push(project);
-              s.project = s.past.pop()!;
+              s.project = keepWorkflow(s.past.pop()!, project);
             });
             clearMissingSelection();
           },
@@ -235,7 +336,7 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             if (!future.length) return;
             set((s) => {
               s.past.push(project);
-              s.project = s.future.pop()!;
+              s.project = keepWorkflow(s.future.pop()!, project);
             });
             clearMissingSelection();
           },
@@ -310,23 +411,30 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             }
             return { ok, id: placement.id, results };
           },
-          placeWithFix: (module, fix) => {
+          placeWithFix: (candidate, fix) => {
             const { project } = get();
-            const placement = newPlacement(project, module);
+            const placement: Placement =
+              "moduleCode" in candidate
+                ? newPlacement(project, candidate)
+                : ({ ...candidate, id: candidate.id ?? nextId(project, candidate.applianceId) } as AppliancePlacement);
             let after: Project;
             try {
               after = applyFix(withPlacement(project, placement), catalogue, fix.action);
             } catch {
               return { ok: false, id: placement.id, results: [] };
             }
-            // A replace fix keeps the id; a remove fix would take the unit away entirely.
-            const placed = after.modules.find((m) => m.id === placement.id);
-            const results = placed ? checkCandidate(after, catalogue, placed) : [];
-            const ok = !!placed && !hasBlocked(results);
+            // A replace fix keeps the id; a remove fix would take it away entirely.
+            const placed = findPlacement(after, placement.id);
+            // Units the fix added (a sink unit placed with its sink) report their own warnings too.
+            const added = after.modules.filter((m) => m.id !== placement.id && !project.modules.some((x) => x.id === m.id));
+            const results = placed ? [placed, ...added].flatMap((p) => checkCandidate(after, catalogue, p)) : [];
+            const blockedBefore = new Set(runRawChecks(project, catalogue).filter((r) => r.status === "blocked").map(issueKey));
+            const newBlocked = runRawChecks(after, catalogue).some((r) => r.status === "blocked" && !blockedBefore.has(issueKey(r)));
+            const ok = !!placed && !newBlocked && !hasBlocked(results);
             if (ok) {
               replace(after);
               selectPlacement(placement.id);
-              rememberFinish(placed);
+              if (isModulePlacement(placed)) rememberFinish(placed);
             }
             return { ok, id: placement.id, results };
           },
@@ -375,9 +483,17 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
               edit((p) => {
                 p.appliances.push(placement);
               });
+              selectPlacement(placement.id);
             }
             return { ok, id: placement.id, results };
           },
+          setSuppliedBy: (id, by) =>
+            edit((p) => {
+              const a = p.appliances.find((x) => x.id === id);
+              if (!a || (a.suppliedBy ?? "makwana") === by) return;
+              if (by === "makwana") delete a.suppliedBy;
+              else a.suppliedBy = by;
+            }),
           removeAppliance: (id) => {
             edit((p) => {
               p.appliances = p.appliances.filter((a) => a.id !== id);
@@ -389,13 +505,45 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             replace(applyFix(get().project, catalogue, fix.action));
             clearMissingSelection();
           },
-          setDiscount: (pct) =>
+          setDiscount: (pct) => {
+            const { project } = get();
+            const next = Math.round(Math.min(50, Math.max(0, pct)) * 10) / 10;
+            if (next === project.discountPct) return;
+            const limit = catalogue.commercial.discountLimitPct;
+            const by = actor();
             edit((p) => {
-              p.discountPct = pct;
-            }),
+              p.discountPct = next;
+              const note = next > limit ? "needs manager approval" : "within salesperson limit";
+              p.activity = [...(p.activity ?? []), { at: now(), by, action: "discount_changed", detail: `Discount ${project.discountPct}% → ${next}% · ${note}` }];
+            });
+          },
           setStatus: (status) =>
             edit((p) => {
               p.status = status;
+            }),
+          ensureQuote: () => {
+            if (get().project.quote) return;
+            const seq = get().settings.nextQuoteSeq;
+            workflow((p) => createQuote(p, seq, now(), actor()));
+            set((s) => {
+              s.settings.nextQuoteSeq = seq + 1;
+            });
+          },
+          sendForApproval: () => workflow((p) => sendForApproval(p, now(), actor(), approvalItems(runRawChecks(p, catalogue)))),
+          approve: () => workflow((p) => approve(p, now(), actor())),
+          sendBack: (comment) => workflow((p) => sendBack(p, now(), actor(), comment)),
+          markShared: (how) => workflow((p) => markShared(p, now(), actor(), how)),
+          setRole: (role) =>
+            set((s) => {
+              s.settings.role = role;
+            }),
+          setApprovalMode: (mode) =>
+            set((s) => {
+              s.settings.approvalMode = mode;
+            }),
+          setSnapshot: (dataUrl) =>
+            set((s) => {
+              s.ui.snapshot = dataUrl;
             }),
           select: selectPlacement,
           showWall: (wallId) =>
@@ -411,6 +559,14 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             set((s) => {
               s.ui.elevationZoom = Math.min(4, Math.max(0.5, zoom));
             }),
+          setWallHeight: (mode) =>
+            set((s) => {
+              s.ui.wallHeight = mode;
+            }),
+          setCustomerView: (on) =>
+            set((s) => {
+              s.ui.customerView = on;
+            }),
           finishFor: (moduleCode) => inheritedFinish(get().project, catalogue, moduleCode, get().ui.recentFinish),
         };
       }),
@@ -418,7 +574,12 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
         name: PERSIST_KEY,
         version: PERSIST_VERSION,
         storage: createJSONStorage(storage),
-        partialize: (s) => ({ project: s.project }),
+        partialize: (s) => ({ project: s.project, settings: s.settings }),
+        // Older saves have no settings: keep the defaults for whatever is missing.
+        merge: (persisted, current) => {
+          const p = (persisted ?? {}) as Partial<Pick<ProjectState, "project" | "settings">>;
+          return { ...current, ...(p.project ? { project: p.project } : {}), settings: { ...current.settings, ...p.settings } };
+        },
         // A stored project from another version may not match today's types: start from the seed.
         migrate: () => ({ project: initial }),
         // Rehydrated on the client after mount, so server and first client render agree.

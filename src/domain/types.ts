@@ -110,12 +110,17 @@ export interface ModulePlacement {
   blindSide?: BlindSide;
 }
 
+/** Who supplies an appliance. Customer's own appliances are fitted but not charged. */
+export type SuppliedBy = "makwana" | "customer";
+
 /** Sink/hob on a base host; oven/microwave in a tall host. Position derives from the host. */
 export interface HostedAppliancePlacement {
   kind: "hosted";
   id: string;
   applianceId: string;
   hostPlacementId: string;
+  /** Absent means "makwana". */
+  suppliedBy?: SuppliedBy;
 }
 
 /** Chimney (wall layer), dishwasher (base), fridge space (tall). */
@@ -126,6 +131,8 @@ export interface FreeAppliancePlacement {
   wallId: string;
   layer: Layer;
   offsetMm: number;
+  /** Absent means "makwana". */
+  suppliedBy?: SuppliedBy;
 }
 
 export type AppliancePlacement = HostedAppliancePlacement | FreeAppliancePlacement;
@@ -136,6 +143,40 @@ export type Placement = ModulePlacement | AppliancePlacement;
 export type ProjectStatus = "draft" | "pending_approval" | "approved";
 
 export type KitchenType = "closed" | "open" | "semi-open";
+
+/** Identity of the quote for a project, assigned when it first reaches the Quote screen. */
+export interface QuoteInfo {
+  /** e.g. "MMK-AND-2026-0147". */
+  number: string;
+  /** Starts at 1; goes up when an approved quote is changed. */
+  version: number;
+  /** The rule set the design was checked against, e.g. "sample-v1". */
+  ruleSetVersion: string;
+  /** ISO date-time the quote was created. */
+  createdAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  /** The manager's comment when they sent it back; cleared when it is sent again. */
+  sentBack?: { by: string; at: string; comment: string };
+}
+
+export type ActivityAction =
+  | "quote_created"
+  | "discount_changed"
+  | "sent_for_approval"
+  | "approved"
+  | "sent_back"
+  | "shared"
+  | "returned_to_draft"
+  | "version_created";
+
+export interface ActivityEntry {
+  /** ISO date-time. */
+  at: string;
+  by: string;
+  action: ActivityAction;
+  detail: string;
+}
 
 export interface Project {
   id: string;
@@ -149,6 +190,10 @@ export interface Project {
   appliances: AppliancePlacement[];
   discountPct: number;
   status: ProjectStatus;
+  /** Absent until the project first reaches the Quote screen. */
+  quote?: QuoteInfo;
+  /** Newest last. Absent means no entries yet. */
+  activity?: ActivityEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -269,11 +314,26 @@ export type FixAction =
   | { type: "resize"; placementId: string; widthMm: number }
   | { type: "remove"; placementId: string }
   | { type: "setShutterType"; placementId: string; shutterTypeId: string }
-  | { type: "setBlindSide"; placementId: string; blindSide: BlindSide };
+  | { type: "setBlindSide"; placementId: string; blindSide: BlindSide }
+  /** Fits an appliance (placed loose, or in another host) into a host unit. */
+  | { type: "attach"; placementId: string; hostPlacementId: string }
+  /**
+   * Places a host unit and fits the appliance into it, as one action. `placementId` is the loose
+   * appliance being fitted; without it a new appliance is added.
+   */
+  | { type: "placeHostWithAppliance"; moduleCode: string; wallId: string; offsetMm: number; applianceId: string; placementId?: string };
 
 export interface Fix {
   label: string;
   action: FixAction;
+}
+
+/** Where on a wall an issue is, for issues without a single unit (gaps, corners) and to frame any issue. */
+export interface Anchor {
+  wallId: string;
+  layer: Layer;
+  offsetMm: number;
+  widthMm: number;
 }
 
 export interface CheckResult {
@@ -283,4 +343,5 @@ export interface CheckResult {
   placementIds: string[];
   message: string;
   fixes: Fix[];
+  anchor?: Anchor;
 }

@@ -10,10 +10,13 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { MANAGER_NAME, type ApprovalMode } from "@/domain/quote";
 import { emptyMehta, newProject, sampleDesign } from "@/domain/seed";
 import type { Project } from "@/domain/types";
 import { cn } from "@/lib/utils";
@@ -99,8 +102,10 @@ function Stepper() {
   );
 }
 
-function DemoMenu({ preparedBy }: { preparedBy: string }) {
+function DemoMenu({ preparedBy, user }: { preparedBy: string; user: string }) {
   const router = useRouter();
+  const { role, approvalMode } = useProjectStore((s) => s.settings);
+  const { setRole, setApprovalMode } = projectStore.getState();
   const load = (project: Project, label: string) => {
     projectStore.getState().loadProject(project);
     router.push("/setup");
@@ -117,14 +122,45 @@ function DemoMenu({ preparedBy }: { preparedBy: string }) {
           />
         }
       >
-        {initials(preparedBy)}
+        {initials(user)}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Demo</DropdownMenuLabel>
           <DropdownMenuItem onClick={() => load(newProject, "Started a new, empty project")}>New project (empty)</DropdownMenuItem>
           <DropdownMenuItem onClick={() => load(emptyMehta, "Loaded the Mehta room")}>Load Mehta room</DropdownMenuItem>
           <DropdownMenuItem onClick={() => load(sampleDesign, "Loaded the sample design")}>Load sample design</DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Role</DropdownMenuLabel>
+          {role === "salesperson" ? (
+            <DropdownMenuItem
+              onClick={() => {
+                setRole("manager");
+                toast(`Now viewing as ${MANAGER_NAME}`);
+              }}
+            >
+              Switch to Manager ({MANAGER_NAME})
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              onClick={() => {
+                setRole("salesperson");
+                toast(`Now viewing as ${preparedBy}`);
+              }}
+            >
+              Switch to Salesperson ({preparedBy})
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Manager approval</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={approvalMode} onValueChange={(v) => setApprovalMode(v as ApprovalMode)}>
+            <DropdownMenuRadioItem value="always">Always</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="flagged">Only when flagged</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled>Undo ⌘Z · Redo ⇧⌘Z</DropdownMenuItem>
@@ -137,6 +173,8 @@ export function TopBar() {
   const name = useProjectStore((s) => s.project.name);
   const site = useProjectStore((s) => s.project.siteAddress);
   const preparedBy = useProjectStore((s) => s.project.preparedBy);
+  const role = useProjectStore((s) => s.settings.role);
+  const user = role === "manager" ? MANAGER_NAME : preparedBy;
 
   return (
     <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-mk-line bg-mk-panel px-7">
@@ -156,10 +194,12 @@ export function TopBar() {
 
       <div className="flex items-center justify-end gap-3.5">
         <div className="text-right leading-tight">
-          <div className="text-[15px] font-semibold">{preparedBy}</div>
-          <div className="text-[13px] text-mk-muted">Experience Centre, Andheri</div>
+          <div className="text-[15px] font-semibold" data-user>
+            {user}
+          </div>
+          <div className="text-[13px] text-mk-muted">{role === "manager" ? "Approvals · " : ""}Experience Centre, Andheri</div>
         </div>
-        <DemoMenu preparedBy={preparedBy} />
+        <DemoMenu preparedBy={preparedBy} user={user} />
       </div>
     </header>
   );

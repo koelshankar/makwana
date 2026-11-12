@@ -39,6 +39,7 @@ export interface Entry {
   wallId: string | null;
   wb: WallBox | null; // box in its own wall's frame
   box: Box | null; // world box; null if the wall or host is missing
+  /** Fitted in a unit, or a fitted-type appliance placed loose: takes no space on the wall. */
   hosted: boolean;
   isFiller: boolean;
 }
@@ -102,7 +103,8 @@ function buildContext(project: Project, cat: Catalogue): RuleContext {
       wallId,
       wb,
       box,
-      hosted: !isModule && placement.kind === "hosted",
+      // A sink or oven dropped loose (not in a unit) takes no space: only the host rule reports it.
+      hosted: !isModule && (placement.kind === "hosted" || getAppliance(cat, placement.applianceId).hosted),
       isFiller: isModule && getModule(cat, placement.moduleCode).family === "FIL",
     };
   });

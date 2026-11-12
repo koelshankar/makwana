@@ -14,3 +14,6 @@ export const COUNTERTOP_DEPTH_MM = 600;
 
 /** Wall thickness drawn outside the room interior (3D and plan only). */
 export const WALL_THICKNESS_MM = 100;
+
+/** Bottom of the appliances housed in a tall unit (oven low, microwave above it). */
+export const FITTED_BOTTOM_MM: Record<string, number> = { oven: 700, microwave: 1350 };

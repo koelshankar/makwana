@@ -25,10 +25,11 @@ const RULE_TOPICS: Record<string, string> = {
   layer: "Rows",
   "blind-side": "Corners",
   "custom-size": "Sizes",
-  "hob-under-window": "Hob",
-  "chimney-above-hob": "Chimney",
-  "sink-near-plumbing": "Sink",
+  "hob-window": "Hob",
+  "chimney-hob": "Chimney",
+  "sink-plumbing": "Sink",
   "appliance-host": "Appliances",
+  "host-capacity": "Appliances",
   discount: "Discount",
 };
 
@@ -43,6 +44,12 @@ export function splitMessage(message: string): { title: string; detail: string }
   const i = message.indexOf(". ");
   return i < 0 ? { title: message, detail: "" } : { title: message.slice(0, i + 1), detail: message.slice(i + 2) };
 }
+
+/** Rules about a place on a wall rather than one unit: the popover highlights their anchor. */
+export const ANCHOR_RULES: Record<string, "gap" | "corner"> = { "leftover-gap": "gap", corner: "corner" };
+
+/** Blocked first, then approval, then warning. */
+export const STATUS_ORDER: Record<CheckResult["status"], number> = { blocked: 0, approval: 1, warning: 2, pass: 3 };
 
 export const STATUS_LABELS: Record<CheckResult["status"], string> = {
   pass: "Passed",

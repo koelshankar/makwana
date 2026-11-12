@@ -1,276 +1,178 @@
 "use client";
 
-// Level 1 3D view: display only (rotate, zoom, click to select). Everything comes from the store.
+// Level 1 3D view: cabinets, countertop, appliances and walls in their finish colours, which
+// can be rotated and zoomed. Display only (click to select, no dragging). Everything comes from
+// the project passed in; the meshes are built from src/domain/three-model.ts.
 
-import { Edges, OrbitControls } from "@react-three/drei";
-import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { ContactShadows } from "@react-three/drei";
+import { Canvas, useThree } from "@react-three/fiber";
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { catalogue, getFinish } from "@/domain/catalogue";
-import { countertopOutline, placementToWorldBox, roomOutline, wallBoxToWorld, wallFrame } from "@/domain/geometry";
-import type { Box, Placement, Point, Project, Rect } from "@/domain/types";
-import { WALL_THICKNESS_MM, ZONES } from "@/domain/zones";
+import { catalogue } from "@/domain/catalogue";
+import { inheritedFinish } from "@/domain/finish-defaults";
+import { roomOutline, wallFrames, wallToWorld, type WallFrame } from "@/domain/geometry";
+import { countertopModel, type WallHeightMode } from "@/domain/three-model";
+import type { Project } from "@/domain/types";
+import { ZONES } from "@/domain/zones";
 import { worldBoxes } from "@/store/project-store";
+import { CameraRig, type SceneApi } from "./camera-rig";
+import { edgeMaterial, extrudedGeometry, M, materialFor } from "./materials";
+import { GhostBox, UnitOutline, type SceneGhost } from "./overlays";
+import { RoomMesh } from "./room-mesh";
+import { ApplianceMesh, FittedMesh, UnitMesh, type Pose } from "./unit-mesh";
 
-// World (x right, y down in plan, z up; mm) -> three (x, y up, z; metres).
-const M = 1 / 1000;
+export type { SceneApi, ViewPreset } from "./camera-rig";
+export type { SceneGhost } from "./overlays";
 
-/** A plan-view shape extruded upwards from `bottomMm` to `topMm`. */
-function Extruded({ shape, bottomMm, topMm, color, opacity = 1 }: { shape: THREE.Shape; bottomMm: number; topMm: number; color: string; opacity?: number }) {
-  const geometry = useMemo(
-    () => new THREE.ExtrudeGeometry(shape, { depth: (topMm - bottomMm) * M, bevelEnabled: false }),
-    [shape, bottomMm, topMm],
-  );
-  // Rotating +90° about X maps shape (x, y) to three (x, 0, y) and extrudes towards -y,
-  // so the mesh sits at the top and hangs down to the bottom.
-  return (
-    <mesh geometry={geometry} rotation={[Math.PI / 2, 0, 0]} position={[0, topMm * M, 0]}>
-      <meshStandardMaterial color={color} transparent={opacity < 1} opacity={opacity} side={THREE.DoubleSide} />
-      <Edges color="#555" />
-    </mesh>
-  );
-}
+const BACKGROUND = "#f1efeb";
 
-const pathFrom = <T extends THREE.Path>(pts: Point[], target: T): T => {
-  pts.forEach((p, i) => (i === 0 ? target.moveTo(p.x * M, p.y * M) : target.lineTo(p.x * M, p.y * M)));
-  target.closePath();
-  return target;
+const poseOf = (frame: WallFrame, offsetMm: number): Pose => {
+  const o = wallToWorld(frame, offsetMm, 0);
+  return { x: o.x * M, z: o.y * M, angle: Math.atan2(-frame.u.y, frame.u.x) };
 };
 
-const rectPoints = (r: Rect): Point[] => [
-  { x: r.minX, y: r.minY },
-  { x: r.maxX, y: r.minY },
-  { x: r.maxX, y: r.maxY },
-  { x: r.minX, y: r.maxY },
-];
-
-function BoxMesh({
-  box,
-  color,
-  opacity = 1,
-  edges = "#222",
-  onClick,
-}: {
-  box: Box;
-  color: string;
-  opacity?: number;
-  edges?: string;
-  onClick?: (e: ThreeEvent<MouseEvent>) => void;
-}) {
-  const size: [number, number, number] = [(box.maxX - box.minX) * M, (box.maxZ - box.minZ) * M, (box.maxY - box.minY) * M];
-  const centre: [number, number, number] = [
-    ((box.minX + box.maxX) / 2) * M,
-    ((box.minZ + box.maxZ) / 2) * M,
-    ((box.minY + box.maxY) / 2) * M,
-  ];
-  return (
-    <mesh position={centre} onClick={onClick}>
-      <boxGeometry args={size} />
-      <meshStandardMaterial color={color} transparent={opacity < 1} opacity={opacity} depthWrite={opacity >= 1} />
-      <Edges color={edges} />
-    </mesh>
+const Countertop = memo(function Countertop({ project }: { project: Project }) {
+  const slabs = useMemo(() => countertopModel(project, catalogue), [project]);
+  // Rebuild only when the outline itself changes, not on every project edit.
+  const signature = JSON.stringify(slabs);
+  const built = useMemo(
+    () =>
+      slabs.map((s) => {
+        const geometry = extrudedGeometry(s.outline, s.holes, ZONES.countertop.bottom, ZONES.countertop.top);
+        return { key: s.key, geometry, edges: new THREE.EdgesGeometry(geometry, 25) };
+      }),
+    [signature], // eslint-disable-line react-hooks/exhaustive-deps
   );
-}
-
-function Room({ project }: { project: Project }) {
-  const { room } = project;
-  const { walls, floor } = useMemo(() => {
-    const { inner, outer } = roomOutline(room, WALL_THICKNESS_MM);
-    const wallShape = pathFrom(outer, new THREE.Shape());
-    wallShape.holes.push(pathFrom(inner, new THREE.Path()));
-    return { walls: wallShape, floor: pathFrom(inner, new THREE.Shape()) };
-  }, [room]);
-
-  const features = room.features.flatMap((f) => {
-    if (f.kind === "window" || f.kind === "door") {
-      const frame = wallFrame(room, f.wallId);
-      const z: [number, number] = f.kind === "window" ? [f.sillMm, f.topMm] : [0, f.heightMm];
-      const box = wallBoxToWorld(frame, { along: [f.offsetMm, f.offsetMm + f.widthMm], depth: [-110, 10], z });
-      return [<BoxMesh key={f.id} box={box} color={f.kind === "window" ? "#bcdcf5" : "#b08560"} opacity={f.kind === "window" ? 0.45 : 1} />];
-    }
-    if (f.kind === "column") {
-      const box = { minX: f.x, maxX: f.x + f.widthMm, minY: f.y, maxY: f.y + f.depthMm, minZ: 0, maxZ: room.ceilingHeightMm };
-      return [<BoxMesh key={f.id} box={box} color="#bdbdbd" />];
-    }
-    if (f.kind === "beam") {
-      const frame = wallFrame(room, f.wallId);
-      const box = wallBoxToWorld(frame, { along: [0, frame.lengthMm], depth: [0, f.depthMm], z: [f.bottomMm, room.ceilingHeightMm] });
-      return [<BoxMesh key={f.id} box={box} color="#bdbdbd" opacity={0.6} />];
-    }
-    return [];
-  });
-
+  useEffect(
+    () => () =>
+      built.forEach((b) => {
+        b.geometry.dispose();
+        b.edges.dispose();
+      }),
+    [built],
+  );
   return (
     <>
-      <Extruded shape={floor} bottomMm={-20} topMm={0} color="#e8e4dc" />
-      <Extruded shape={walls} bottomMm={0} topMm={room.ceilingHeightMm} color="#d9d6d0" opacity={0.25} />
-      {features}
-    </>
-  );
-}
-
-function Countertop({ project }: { project: Project }) {
-  const shapes = useMemo(() => {
-    const { slabs, cutOuts } = countertopOutline(project, catalogue);
-    return slabs.map((slab) => {
-      const shape = pathFrom(rectPoints(slab.rect), new THREE.Shape());
-      for (const c of cutOuts) {
-        const inside = c.rect.minX >= slab.rect.minX && c.rect.maxX <= slab.rect.maxX && c.rect.minY >= slab.rect.minY && c.rect.maxY <= slab.rect.maxY;
-        if (inside) shape.holes.push(pathFrom(rectPoints(c.rect), new THREE.Path()));
-      }
-      return { key: `${slab.wallId}-${slab.rect.minX}-${slab.rect.minY}`, shape };
-    });
-  }, [project]);
-  return (
-    <>
-      {shapes.map(({ key, shape }) => (
-        <Extruded key={key} shape={shape} bottomMm={ZONES.countertop.bottom} topMm={ZONES.countertop.top} color="#2b2b2b" />
+      {built.map((b) => (
+        <group key={b.key}>
+          <mesh geometry={b.geometry} material={materialFor("countertop")} />
+          <lineSegments geometry={b.edges} material={edgeMaterial} raycast={() => null} />
+        </group>
       ))}
     </>
   );
-}
-
-type OrbitControlsImpl = React.ComponentRef<typeof OrbitControls>;
-
-const ACCENT = "#7153b5";
-const BAD = "#c2412d";
-
-export interface SceneApi {
-  rotate: (radians: number) => void;
-  zoom: (factor: number) => void;
-  reset: () => void;
-}
-
-/** Camera framing for a room: looking in from the front-left, above. */
-function home(project: Project) {
-  const { inner } = roomOutline(project.room, 0);
-  const xs = inner.map((p) => p.x);
-  const ys = inner.map((p) => p.y);
-  const cx = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 1600;
-  const cy = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 1200;
-  const span = xs.length ? Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) : 3200;
-  const target = new THREE.Vector3(cx * M, 1.0, cy * M);
-  // Orthographic, isometric-ish: direction matters, distance only has to clear the room.
-  return { target, position: target.clone().add(new THREE.Vector3(-6, 7.5, 9)), spanM: (span + 1200) * M };
-}
-
-/** Orthographic zoom (pixels per metre) that fits the room in the panel. */
-const fitZoom = (size: { width: number; height: number }, spanM: number) => Math.min(size.width, size.height * 1.15) / (spanM * 1.25);
-
-const CameraRig = forwardRef<SceneApi, { project: Project }>(function CameraRig({ project }, ref) {
-  const controls = useRef<OrbitControlsImpl>(null);
-  const camera = useThree((s) => s.camera);
-  const size = useThree((s) => s.size);
-  const initial = useMemo(() => home(project), [project.room]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fit on first layout and whenever the panel resizes.
-  useEffect(() => {
-    camera.zoom = fitZoom(size, initial.spanM);
-    camera.updateProjectionMatrix();
-  }, [camera, size, initial.spanM]);
-
-  useImperativeHandle(ref, () => ({
-    rotate: (radians) => {
-      const c = controls.current;
-      if (!c) return;
-      const offset = camera.position.clone().sub(c.target).applyAxisAngle(new THREE.Vector3(0, 1, 0), radians);
-      camera.position.copy(c.target).add(offset);
-      c.update();
-    },
-    zoom: (factor) => {
-      camera.zoom = Math.min(600, Math.max(20, camera.zoom * factor));
-      camera.updateProjectionMatrix();
-      controls.current?.update();
-    },
-    reset: () => {
-      const c = controls.current;
-      if (!c) return;
-      camera.position.copy(initial.position);
-      c.target.copy(initial.target);
-      camera.zoom = fitZoom(size, initial.spanM);
-      camera.updateProjectionMatrix();
-      c.update();
-    },
-  }));
-
-  return <OrbitControls ref={controls} makeDefault target={initial.target} minZoom={20} maxZoom={600} maxPolarAngle={Math.PI / 2.05} />;
 });
+
+/** Soft contact shadows under the cabinets, re-rendered only when the project changes. */
+function Shadows({ project }: { project: Project }) {
+  const { centre, span } = useMemo(() => {
+    const { inner } = roomOutline(project.room, 0);
+    const xs = inner.map((p) => p.x);
+    const ys = inner.map((p) => p.y);
+    return {
+      centre: [((Math.min(...xs) + Math.max(...xs)) / 2) * M, 0.002, ((Math.min(...ys) + Math.max(...ys)) / 2) * M] as [number, number, number],
+      span: (Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) + 400) * M,
+    };
+  }, [project.room]);
+  const version = useVersion(project);
+  return <ContactShadows key={version} position={centre} scale={span} resolution={512} blur={2.4} opacity={0.42} far={2.2} frames={1} color="#2a2018" />;
+}
+
+/** A counter that changes whenever `value` does (keys the shadows' one-off render). */
+function useVersion(value: unknown): number {
+  const [state, setState] = useState({ value, version: 0 });
+  if (state.value !== value) setState({ value, version: state.version + 1 });
+  return state.value === value ? state.version : state.version + 1;
+}
+
+/** Re-renders once whenever the inputs change (frameloop="demand"). */
+function Invalidate({ deps }: { deps: unknown[] }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => invalidate(), deps); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
 
 export interface KitchenSceneProps {
   project: Project;
   selectedId: string | null;
   blockedIds: Set<string>;
-  /** A unit being dragged, shown as a translucent box (green fits, red blocked). */
-  ghost?: { placement: Placement; ok: boolean } | null;
+  wallHeight?: WallHeightMode;
+  /** The wall the "Facing active wall" preset looks at. */
+  activeWallId?: string | null;
+  /** Clicking and hovering units; off in the customer view. */
+  interactive?: boolean;
+  /** Delivers the drag ghost's world box whenever it changes; the ghost is moved, not re-rendered. */
+  subscribeGhost?: (cb: (g: SceneGhost | null) => void) => () => void;
   onSelect?: (id: string) => void;
 }
 
 export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function KitchenScene(
-  { project, selectedId, blockedIds, ghost, onSelect },
+  { project, selectedId, blockedIds, wallHeight = "cut", activeWallId, interactive = true, subscribeGhost, onSelect },
   ref,
 ) {
+  const frames = useMemo(() => new Map(wallFrames(project.room).map((f) => [f.wallId, f])), [project.room]);
   const boxes = useMemo(() => worldBoxes(project), [project]);
-  const initial = useMemo(() => home(project), []); // eslint-disable-line react-hooks/exhaustive-deps
-  const ghostBox = useMemo(() => {
-    if (!ghost) return null;
-    try {
-      return placementToWorldBox(project, ghost.placement, catalogue);
-    } catch {
-      return null;
-    }
-  }, [project, ghost]);
+  const [hoverId, setHoverId] = useState<string | null>(null);
 
-  /** Fitted appliances select their host. */
-  const selectable = (id: string) => {
-    const a = project.appliances.find((x) => x.id === id);
-    return a?.kind === "hosted" ? a.hostPlacementId : id;
-  };
-  const colourFor = (id: string) => {
-    if (blockedIds.has(id)) return "#e9a395";
-    const mod = project.modules.find((m) => m.id === id);
-    if (mod) return getFinish(catalogue, mod.finishId).hex;
-    return "#9aa3ad"; // appliances: brushed steel
-  };
+  // Stable handlers so memoised units never re-render because of them.
+  const selectRef = useRef(onSelect);
+  useEffect(() => {
+    selectRef.current = onSelect;
+  });
+  const handleSelect = useCallback((id: string) => selectRef.current?.(id), []);
+  const handleHover = useCallback((id: string | null) => setHoverId(id), []);
+  const handlers = interactive && onSelect ? { onSelect: handleSelect, onHover: handleHover } : {};
+
+  /** Fitted appliance ids per host, as primitive strings. */
+  const hosted = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const a of project.appliances) if (a.kind === "hosted") m.set(a.hostPlacementId, [...(m.get(a.hostPlacementId) ?? []), a.applianceId]);
+    return new Map([...m].map(([k, v]) => [k, v.sort().join(",")]));
+  }, [project.appliances]);
+  const baseFinishId = useMemo(() => inheritedFinish(project, catalogue, "B600").finishId, [project]);
+
+  const selected = selectedId;
+  const hover = interactive && hoverId && hoverId !== selected ? hoverId : null;
 
   return (
-    <Canvas orthographic camera={{ position: initial.position.toArray(), zoom: 80, near: 0.1, far: 100 }} dpr={[1, 2]}>
-      <color attach="background" args={["#f1efeb"]} />
-      <ambientLight intensity={0.75} />
-      <directionalLight position={[3, 6, 4]} intensity={1.1} />
-      <Room project={project} />
-      {[...boxes].map(([id, box]) => {
-        const sel = selectable(id) === selectedId;
-        return (
-          <BoxMesh
-            key={id}
-            box={box}
-            color={colourFor(id)}
-            edges={blockedIds.has(id) ? BAD : sel ? ACCENT : "#222"}
-            onClick={
-              onSelect &&
-              ((e) => {
-                e.stopPropagation();
-                onSelect(selectable(id));
-              })
-            }
-          />
-        );
+    <Canvas
+      orthographic
+      frameloop="demand"
+      dpr={[1, 2]}
+      camera={{ position: [-8, 9, 12], zoom: 80, near: 0.05, far: 100 }}
+      gl={{ antialias: true }}
+      onPointerMissed={() => setHoverId(null)}
+      data-scene
+    >
+      <color attach="background" args={[BACKGROUND]} />
+      <hemisphereLight args={["#ffffff", "#d6ccbe", 2.6]} />
+      <directionalLight position={[-5, 8, 3]} intensity={1.5} />
+      <RoomMesh room={project.room} mode={wallHeight} />
+      {project.modules.map((p) => {
+        const f = frames.get(p.wallId);
+        return f ? <UnitMesh key={p.id} placement={p} hosted={hosted.get(p.id) ?? ""} pose={poseOf(f, p.offsetMm)} {...handlers} /> : null;
       })}
-      {/* Selected unit: an accent shell just outside its box. */}
-      {selectedId && boxes.get(selectedId) && (
-        <BoxMesh box={grow(boxes.get(selectedId)!, 12)} color={ACCENT} opacity={0.22} edges={ACCENT} />
-      )}
-      {/* Blind sections of corner units, shaded so the blind side is visible. */}
-      {[...boxes].flatMap(([id, box]) =>
-        box.blindPart ? [<BoxMesh key={`${id}-blind`} box={{ ...box.blindPart, maxZ: box.blindPart.maxZ + 5 }} color="#000" opacity={0.25} />] : [],
-      )}
-      {ghostBox && <BoxMesh box={grow(ghostBox, 6)} color={ghost!.ok ? "#439c5b" : BAD} opacity={0.35} edges={ghost!.ok ? "#439c5b" : BAD} />}
+      {project.appliances.map((a) => {
+        if (a.kind === "hosted") {
+          const host = project.modules.find((m) => m.id === a.hostPlacementId);
+          const f = host && frames.get(host.wallId);
+          return host && f ? <FittedMesh key={a.id} id={a.id} applianceId={a.applianceId} host={host} pose={poseOf(f, host.offsetMm)} {...handlers} /> : null;
+        }
+        const f = frames.get(a.wallId);
+        return f ? <ApplianceMesh key={a.id} id={a.id} applianceId={a.applianceId} baseFinishId={baseFinishId} pose={poseOf(f, a.offsetMm)} {...handlers} /> : null;
+      })}
       <Countertop project={project} />
-      <CameraRig ref={ref} project={project} />
+      <Shadows project={project} />
+      {interactive &&
+        [...blockedIds].map((id) => {
+          const box = boxes.get(id);
+          return box ? <UnitOutline key={`b-${id}`} box={box} kind="blocked" /> : null;
+        })}
+      {interactive && selected && boxes.get(selected) && <UnitOutline box={boxes.get(selected)!} kind="selected" shell={!blockedIds.has(selected)} />}
+      {hover && boxes.get(hover) && <UnitOutline box={boxes.get(hover)!} kind="hover" />}
+      {subscribeGhost && <GhostBox subscribe={subscribeGhost} />}
+      <Invalidate deps={[project, selected, hover, blockedIds, wallHeight, interactive]} />
+      <CameraRig ref={ref} room={project.room} boxes={boxes} activeWallId={activeWallId} />
     </Canvas>
   );
 });
-
-function grow(b: Box, d: number): Box {
-  return { minX: b.minX - d, maxX: b.maxX + d, minY: b.minY - d, maxY: b.maxY + d, minZ: b.minZ - d, maxZ: b.maxZ + d };
-}

@@ -2,8 +2,9 @@
 // the engine keeps only the fixes that are proven safe by applying them to a copy.
 
 import { applyFix, withPlacement } from "../fixes";
-import type { Catalogue, CheckResult, Fix, ModulePlacement, Placement, Project } from "../types";
-import { applianceHostRule, chimneyAboveHobRule, hobUnderWindowRule, sinkNearPlumbingRule } from "./appliance";
+import type { Anchor, Catalogue, CheckResult, Fix, ModulePlacement, Placement, Project } from "../types";
+import { applianceHostRule, chimneyAboveHobRule, hobUnderWindowRule, hostCapacityRule, sinkNearPlumbingRule } from "./appliance";
+import { getContext } from "./context";
 import { discountRule } from "./commercial";
 import { cornerRule, leftoverGapRule, outsideWallRule, overlapRule } from "./fit";
 import { blindSideRule, customSizeRule, finishShutterRule, layerRule } from "./product";
@@ -37,6 +38,7 @@ export const RULES: Rule[] = [
   chimneyAboveHobRule,
   sinkNearPlumbingRule,
   applianceHostRule,
+  hostCapacityRule,
   discountRule,
 ];
 
@@ -47,9 +49,25 @@ export function issueKey(r: CheckResult): string {
   return `${r.ruleId}|${[...r.placementIds].sort().join(",")}`;
 }
 
-/** All rule results with proposed (unvalidated) fixes. */
+/** Where an issue is: the wall slot of the first unit involved (a fitted appliance's host). */
+function anchorFor(project: Project, cat: Catalogue, r: CheckResult): Anchor | undefined {
+  const ctx = getContext(project, cat);
+  for (const id of r.placementIds) {
+    const e = ctx.entryById.get(id);
+    const p = e?.placement;
+    const slot = p && "kind" in p && p.kind === "hosted" ? ctx.entryById.get(p.hostPlacementId)?.slot : e?.slot;
+    if (slot) return { wallId: slot.wallId, layer: slot.layer, offsetMm: slot.offsetMm, widthMm: slot.widthMm };
+  }
+  return undefined;
+}
+
+/** All rule results with proposed (unvalidated) fixes, anchored to a wall where they have a location. */
 export function runRawChecks(project: Project, cat: Catalogue): CheckResult[] {
-  return RULES.flatMap((rule) => rule(project, cat));
+  return RULES.flatMap((rule) => rule(project, cat)).map((r) => {
+    if (r.status === "pass" || r.anchor) return r;
+    const anchor = anchorFor(project, cat, r);
+    return anchor ? { ...r, anchor } : r;
+  });
 }
 
 /**
@@ -83,7 +101,9 @@ export function isFixSafe(
 /** Only the nearest safe move per wall is kept; other fixes are de-duplicated by action. */
 function fixGroup(fix: Fix): string {
   const a = fix.action;
-  return a.type === "move" ? `move:${a.placementId}:${a.wallId}` : JSON.stringify(a);
+  if (a.type === "move") return `move:${a.placementId}:${a.wallId}`;
+  if (a.type === "placeHostWithAppliance") return `placeHost:${a.applianceId}`;
+  return JSON.stringify(a);
 }
 
 function withSafeFixes(project: Project, cat: Catalogue, results: CheckResult[]): CheckResult[] {
@@ -132,7 +152,7 @@ export function summarise(results: CheckResult[]) {
 // ---------------------------------------------------------------------------
 // Fast check, for drag previews and keyboard nudges
 
-/** The rules that decide whether a unit can physically sit at a position. */
+/** The rules that decide whether a unit or appliance can physically sit at a position. */
 const PLACEMENT_RULES = [
   outsideWallRule,
   overlapRule,
@@ -141,6 +161,10 @@ const PLACEMENT_RULES = [
   aboveCeilingRule,
   beamRule,
   columnRule,
+  applianceHostRule,
+  hostCapacityRule,
+  hobUnderWindowRule,
+  sinkNearPlumbingRule,
 ] as const;
 
 export interface FastCheck {
@@ -158,8 +182,9 @@ export function firstSentence(message: string): string {
 
 /**
  * Placement rules only, with no fix generation: cheap enough to run on every animation frame
- * while dragging. Agrees with checkCandidate on whether the candidate is blocked, as long as
- * the candidate's product choices (layer, shutter, blind side) are valid.
+ * while dragging. Takes a unit, a fitted appliance (with its host) or a free appliance. Agrees
+ * with checkCandidate on whether the candidate is blocked, as long as the candidate's product
+ * choices (layer, shutter, blind side) are valid.
  */
 export function checkPlacementFast(project: Project, cat: Catalogue, candidate: Placement): FastCheck {
   const augmented = withPlacement(project, candidate);
