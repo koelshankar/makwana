@@ -78,11 +78,30 @@ Findings from writing it:
 | M3 | Brief | **"Shared twice" needs Download PDF from the Share dialog.** That button logs a share; the footer's Download PDF doesn't. The brief says "Click Download PDF" right after Copy, with the dialog still open, so the test uses the dialog's button. A presenter using the footer button gets five entries, not six. |
 | M4 | Minor (D5) | After approval the Totals note still reads "above 5% · needs approval" (see D5). The test doesn't assert it either way. |
 
+## Brief: section 7 focused tests (`e2e/focused.spec.ts`)
+
+Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs Chrome restarted with WebGL disabled.
+
+| Row | Result | Notes |
+|---|---|---|
+| Quote number not used by loading | Pass | Two sample loads and two Quote visits stay "Draft quote · Version 1"; sending gives 0147. |
+| Download assigns a number | Pass | Print page and Quote header both 0147 (`window.print` stubbed). |
+| Share in "Only when flagged" | Pass | Share enabled at discount 0 before approval; opening it assigns 0147. |
+| Clipboard unavailable | Pass | Box focused, fully selected, highlighted, "Press ⌘C / Ctrl+C to copy". ⌘C shows the toast and logs one share. |
+| Corrupted save | Pass | Both saves from the brief: empty Mehta room, toast, never stuck. |
+| /spike hidden | Pass | 404. The test allows Chrome's own "Failed to load resource … 404" console line. |
+| Performance mode (manual) | Pass | The 3D picture changes, the canvas draws at pixel ratio 1, and the setting survives a reload. |
+| Performance mode (automatic) | **Skipped** | The fast-machine half passes (3 s of orbiting leaves it off). With CPU 20× slower, the brief's trick, frames stay under 33 ms on this M4, so the switch, toast, "once" and Reset parts skip with that reason instead of being forced. Needs a slow machine or a person. |
+| Edit after approval | Pass | Toast "…(Version 2)"; Quote shows Version 2, Draft. |
+| Undo | Pass | Finish change and a delete undo and redo; status, quote and activity are identical before and after. |
+| Page title and icon | Pass | Title, and `icon.svg` is served with an "M". The icon's look is not checked. |
+| Screen error page | Pass | Error page, then Reload gives Design with the same project. The test allows only React's report of the thrown "test" error. |
+
 ## Open items
 
 - D5: after approval, the Totals discount note still reads "above 5% · needs approval". A presenter would see it right after approving. Fix: pass the approval to `TotalsCard` and read "above 5% · approved by Store Manager".
 - M1: BC1000 snapping at 1366 (see the main script findings).
-- The section 7 Playwright tests are not written.
+- Section 7 still needs a person for: WebGL off (Chrome restart), automatic performance mode on a slow machine, the native print dialog and saved PDF, real full screen, and the icon's look.
 - #1: install, build and run `npm start` once offline on the demo laptop.
 - Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
 
