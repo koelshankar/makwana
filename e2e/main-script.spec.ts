@@ -150,9 +150,9 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     await expect.poll(() => runningTotal(page)).toBeGreaterThan(total);
 
     total = await runningTotal(page);
-    // The right end of wall A, aimed 20 mm past it. (Aimed 20 mm short, it snaps onto SU900 at
-    // 1366: neighbour edges win over the wall end, and 8 px is 87 mm there. See HARDENING.md.)
-    await searchAndDrag(page, "BC1000", "A", 2200 + 500 + 20, 400);
+    // The right end of wall A, aimed 20 mm short of it: the wall end wins over SU900's edge, which
+    // is also in reach at 1366 (8 px = 87 mm there). M1 in HARDENING.md.
+    await searchAndDrag(page, "BC1000", "A", 2200 + 500 - 20, 400);
     await expect.poll(async () => (await modulesOf(page, "BC1000")).map((m) => m.offsetMm)).toEqual([2200]);
     await expect.poll(() => runningTotal(page)).toBeGreaterThan(total);
     await expect(page.locator("[data-checks]")).toHaveAttribute("data-checks", "warning");

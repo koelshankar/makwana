@@ -26,6 +26,20 @@ describe("snapOffset", () => {
     expect(snapOffset(2188, 450, targets, 20)).toEqual({ offsetMm: 2200, kind: "feature" });
   });
 
+  it("prefers a free wall end over a neighbour edge when both are in reach (M1)", () => {
+    // Wall A at 1366 px: SU900 at 1200-2100, BC1000 (1000 wide) dropped 20 mm short of the end; 8 px = 87 mm.
+    const a: SnapTargets = { lengthMm: 3200, occupied: [[0, 300], [300, 1200], [1200, 2100]], neighbours: [[300, 1200], [1200, 2100]], runEnds: [[0, 300]], features: [1300, 2200, 1750] };
+    expect(snapOffset(2180, 1000, a, 87)).toEqual({ offsetMm: 2200, kind: "runEnd" });
+    expect(snapOffset(2120, 1000, a, 87)).toEqual({ offsetMm: 2200, kind: "runEnd" });
+    // Out of the wall end's reach, the neighbour still wins.
+    expect(snapOffset(2105, 1000, a, 87)).toEqual({ offsetMm: 2100, kind: "neighbour" });
+  });
+
+  it("skips a wall end that is occupied (the column in the corner)", () => {
+    expect(snapOffset(12, 600, targets, 20)).toEqual({ offsetMm: 10, kind: "grid" });
+    expect(snapOffset(312, 600, targets, 20)).toEqual({ offsetMm: 300, kind: "runEnd" });
+  });
+
   it("falls back to the 10 mm grid, or when magnets are off", () => {
     expect(snapOffset(2004, 450, targets, 20)).toEqual({ offsetMm: 2000, kind: "grid" });
     expect(snapOffset(312, 600, targets, 20, false)).toEqual({ offsetMm: 310, kind: "grid" });

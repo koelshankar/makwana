@@ -45,15 +45,21 @@ export interface Snap {
 
 /**
  * Snaps a raw offset for a unit of `widthMm`. Each class of target is tried in priority order
- * (neighbour edges, then run ends, then feature edges) and the nearest candidate within
- * `thresholdMm` wins; otherwise the offset rounds to the 10 mm grid.
+ * (a free wall end, then neighbour edges, then other run ends, then feature edges) and the nearest
+ * candidate within `thresholdMm` wins; otherwise the offset rounds to the 10 mm grid.
+ *
+ * A wall end comes first so a unit dropped near the end of a wall lands there even when a
+ * neighbour's edge is also in reach (BC1000 at the end of wall A, 100 mm past SU900, at 1366 px
+ * where 8 px is 87 mm). Only a free end counts: one where the unit would overlap nothing.
  */
 export function snapOffset(raw: number, widthMm: number, t: SnapTargets, thresholdMm: number, magnets = true): Snap {
   if (magnets) {
     const abut = (ranges: [number, number][]) => ranges.flatMap(([a0, a1]) => [a1, a0 - widthMm]);
+    const free = (c: number) => !t.occupied.some(([a0, a1]) => a0 < c + widthMm && c < a1);
     const classes: [SnapKind, number[]][] = [
+      ["runEnd", [0, t.lengthMm - widthMm].filter(free)],
       ["neighbour", abut(t.neighbours)],
-      ["runEnd", [0, t.lengthMm - widthMm, ...abut(t.runEnds)]],
+      ["runEnd", abut(t.runEnds)],
       ["feature", t.features.flatMap((e) => [e, e - widthMm])],
     ];
     for (const [kind, candidates] of classes) {
