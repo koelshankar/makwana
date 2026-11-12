@@ -1,11 +1,13 @@
 "use client";
 
-// Every 3D canvas sits inside this boundary. If the device has no WebGL, or the renderer throws
-// while starting or drawing, the panel says so and the rest of the screen keeps working.
+// Every 3D canvas sits inside this boundary. If the device has no WebGL, the renderer throws while
+// starting or drawing, or the WebGL context is lost mid-session, the panel says so and the rest of
+// the screen keeps working. When a lost context is restored, the canvas remounts.
 
 import { Box } from "lucide-react";
-import { Component, type ReactNode } from "react";
+import { Component, createContext, Fragment, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { healthyScene, sceneHealth, sceneUnavailable, type SceneEvent, type SceneHealth } from "./scene-health";
 
 let webgl: boolean | undefined;
 
@@ -25,6 +27,9 @@ export function hasWebGL(): boolean {
   return webgl;
 }
 
+/** How a canvas inside the boundary reports WebGL context loss and restore. */
+export const SceneEvents = createContext<((event: Exclude<SceneEvent, "error">) => void) | null>(null);
+
 export function SceneUnavailable({ className }: { className?: string }) {
   return (
     <div className={cn("absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#f1efeb] px-6 text-center", className)} role="status" data-three-unavailable>
@@ -37,15 +42,15 @@ export function SceneUnavailable({ className }: { className?: string }) {
 
 interface Props {
   children: ReactNode;
-  /** Called once when the 3D view can't be shown (no WebGL, or it failed). */
+  /** Called when the 3D view can't be shown (no WebGL, it failed, or its context was lost). */
   onUnavailable?: () => void;
   fallback?: ReactNode;
 }
 
-export class SceneBoundary extends Component<Props, { failed: boolean }> {
-  state = { failed: !hasWebGL() };
+export class SceneBoundary extends Component<Props, SceneHealth> {
+  state: SceneHealth = hasWebGL() ? healthyScene : sceneHealth(healthyScene, "error");
 
-  static getDerivedStateFromError() {
+  static getDerivedStateFromError(): Partial<SceneHealth> {
     return { failed: true };
   }
 
@@ -57,8 +62,23 @@ export class SceneBoundary extends Component<Props, { failed: boolean }> {
     this.props.onUnavailable?.();
   }
 
+  private report = (event: Exclude<SceneEvent, "error">) => {
+    const wasUnavailable = sceneUnavailable(this.state);
+    this.setState((s) => sceneHealth(s, event));
+    if (event === "context-lost" && !wasUnavailable) this.props.onUnavailable?.();
+  };
+
   render() {
-    if (!this.state.failed) return this.props.children;
-    return this.props.fallback === undefined ? <SceneUnavailable /> : this.props.fallback;
+    const { failed, generation } = this.state;
+    const panel = this.props.fallback === undefined ? <SceneUnavailable /> : this.props.fallback;
+    if (failed) return panel;
+    // While the context is lost the canvas stays mounted (it is the element that receives the
+    // restore event) under the panel; on restore the new generation key remounts it.
+    return (
+      <SceneEvents.Provider value={this.report}>
+        <Fragment key={generation}>{this.props.children}</Fragment>
+        {sceneUnavailable(this.state) && panel}
+      </SceneEvents.Provider>
+    );
   }
 }

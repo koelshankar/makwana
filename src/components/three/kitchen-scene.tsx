@@ -6,7 +6,7 @@
 
 import { ContactShadows } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { catalogue } from "@/domain/catalogue";
 import { inheritedFinish } from "@/domain/finish-defaults";
@@ -19,6 +19,7 @@ import { CameraRig, type SceneApi } from "./camera-rig";
 import { edgeMaterial, extrudedGeometry, M, materialFor, setEdgeLines } from "./materials";
 import { GhostBox, UnitOutline, type SceneGhost } from "./overlays";
 import { RoomMesh } from "./room-mesh";
+import { SceneEvents } from "./scene-boundary";
 import { ApplianceMesh, FittedMesh, UnitMesh, type Pose } from "./unit-mesh";
 
 export type { SceneApi, ViewPreset } from "./camera-rig";
@@ -155,6 +156,28 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
   const selected = selectedId;
   const hover = interactive && hoverId && hoverId !== selected ? hoverId : null;
 
+  // WebGL context loss mid-session (GPU reset, driver update): tell the boundary, which shows the
+  // "3D view isn't available" panel and remounts this canvas when the context is restored.
+  const report = useContext(SceneEvents);
+  const reportRef = useRef(report);
+  useEffect(() => {
+    reportRef.current = report;
+  });
+  const detachContextEvents = useRef<(() => void) | null>(null);
+  useEffect(() => () => detachContextEvents.current?.(), []);
+  const onCreated = useCallback(({ gl }: { gl: THREE.WebGLRenderer }) => {
+    detachContextEvents.current?.();
+    const canvas = gl.domElement;
+    const lost = () => reportRef.current?.("context-lost");
+    const restored = () => reportRef.current?.("context-restored");
+    canvas.addEventListener("webglcontextlost", lost);
+    canvas.addEventListener("webglcontextrestored", restored);
+    detachContextEvents.current = () => {
+      canvas.removeEventListener("webglcontextlost", lost);
+      canvas.removeEventListener("webglcontextrestored", restored);
+    };
+  }, []);
+
   return (
     <Canvas
       orthographic
@@ -163,6 +186,7 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
       camera={{ position: [-8, 9, 12], zoom: 80, near: 0.05, far: 100 }}
       gl={{ antialias: true }}
       onPointerMissed={() => setHoverId(null)}
+      onCreated={onCreated}
       data-scene
     >
       <color attach="background" args={[BACKGROUND]} />
