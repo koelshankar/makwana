@@ -30,14 +30,14 @@ Branch: `hardening-1` (from `main` at `6a9cd17`). One commit per finding. Not me
 - **#8** `parseDiscountInput` returns null for empty or non-numeric text. Tests: unit + e2e.
 - **#9** `onRehydrateStorage` error loads the empty Mehta room. Screens wait on `isRestored()`. Test: store unit.
 - **#10** `snapshotStep` gives up after 3 s and prints without the picture. Test: unit.
-- **#11** `quoteModel` sets `header.watermark = "DRAFT"` unless approved; the print page repeats it on every page. Tests: domain unit + e2e.
+- **#11** `quoteModel` sets `header.watermark = "DRAFT"` unless the quote is final (pass 3: `isQuoteFinal`, so also none in "Only when flagged" mode when nothing needs approval); the print page repeats it on every page. Tests: domain unit + e2e.
 - **#12** The toast uses `project.preparedBy`. Test: e2e (seeded with another preparer).
 
 Final run (pass 1): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/design` 339 kB), `npm run e2e` 12/12.
 
 Final run (pass 2): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/design` 339 kB, shared 233 kB). `npx playwright test`: 38 passed, 2 skipped (automatic performance mode, see section 7), 40 in all across both sizes. That count includes the console guard's expected-failure self-check.
 
-Final run (pass 3, the fixes below, with the draft-download change): `npm test` 175/175, `tsc` and `lint` clean, build passes (`/design` 339 kB, shared 233 kB). `npx playwright test`: 38 passed, 2 skipped (the same automatic performance mode half), 40 in all.
+Final run (pass 3, the fixes below, with `isQuoteFinal`): `npm test` 177/177, `tsc` and `lint` clean, build passes (`/design` 339 kB, `/quote` 308 kB, shared 233 kB). `npx playwright test`: 40 passed, 2 skipped (the same automatic performance mode half), 42 in all.
 
 ## Pass 3 fixes
 
@@ -45,7 +45,8 @@ Final run (pass 3, the fixes below, with the draft-download change): `npm test` 
 |---|---|---|
 | M1 | `snapOffset` tries a free wall end first, then neighbour edges, then the other run ends, then features. A wall end counts only if the unit there would overlap nothing, so the column in the A/H corner is never a target. | Unit: wall end beats a neighbour in reach; occupied end skipped. e2e: the main script drops BC1000 20 mm short of the end of wall A again; it lands at 2200 at both sizes. (With the old order it landed at 2100 at 1366.) |
 | M2 | The elevation draws a selected unit as an accent outline over its normal finish tint. Blocked units keep their red fill. The plan is unchanged: it fills units by layer, not finish. | e2e: in the main script the tint (`data-finish-tint`) changes to the new finish while HU900 is still selected. |
-| M3 | The download log moved into `useDownloadPdf`, which both the footer and the Share dialog use, so each download logs once. It calls `markPdfDownloaded` (`src/domain/quote.ts`): an approved quote logs the share "Version N shared with … · PDF downloaded to send"; any other status (draft, pending) logs `draft_downloaded` "Draft PDF downloaded", which is not a share. That matches the DRAFT watermark, so it applies in "Only when flagged" mode too. | Unit: draft, pending and approved downloads; no quote logs nothing. e2e (focused "download assigns a number"): the footer download of a draft logs "Draft PDF downloaded" and no share; after approval the same button logs one share. The main script (approved, from the dialog) still sees exactly two shares. |
+| M3 | The download log moved into `useDownloadPdf`, which both the footer and the Share dialog use, so each download logs once. It calls `markPdfDownloaded` (`src/domain/quote.ts`). A final quote (see `isQuoteFinal` below) logs the share "Version N shared with … · PDF downloaded to send". Any other logs `draft_downloaded` "Draft PDF downloaded · Version N", which is not a share. | Unit: both approval modes, draft, pending, approved and version 2; no quote logs nothing. e2e (focused "download assigns a number", "Always"): the footer download of a draft logs "Draft PDF downloaded · Version 1" and no share; after approval the same button logs one share. The main script (approved, from the dialog) still sees exactly two shares. |
+| Final | `isQuoteFinal(project, settings)` in `src/domain/quote.ts`: true if the quote is approved, or if the approval mode is "Only when flagged" and nothing needs approval (no `approval` rule results; computed from the project if not given). It decides the DRAFT watermark (`quoteModel` takes the settings; without them it assumes "Always") and the download entry. `canShare` now uses it too (final and nothing blocked), the same rule as before, written once. | Unit: `isQuoteFinal` in both modes; the watermark in "Only when flagged" with discount 0 and 8. e2e (focused): "Only when flagged", discount 0, Share → Download PDF: 0147, no watermark, one share logged, no draft entry. |
 | D5 | The Totals card hides "above 5% · needs approval" once the quote is approved. It still shows in draft and while pending; "within salesperson limit" is unchanged. | e2e: the main script sees the note while pending and no note after approval. |
 
 
@@ -120,7 +121,7 @@ Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs
 ## Decisions
 
 - **No tab sync.** A second tab is blocked, not kept in sync. One live tab means one writer for the save and the quote counter. To switch tabs, close the first one and reload the second.
-- **DRAFT watermark.** Download PDF stays available before approval, so the salesperson can send a preview, but every page is marked DRAFT until the quote is approved.
+- **DRAFT watermark.** Download PDF stays available before approval, so the salesperson can send a preview, but every page is marked DRAFT until the quote is final: approved, or in "Only when flagged" mode with nothing that needs approval (`isQuoteFinal`). A draft download is logged as "Draft PDF downloaded · Version N", not as a share.
 - **Playwright on real Chrome GPU.** Tests use the installed Google Chrome (`channel: "chrome"`) with no SwiftShader flags. Software WebGL logs "GPU stall due to ReadPixels" warnings, which would trip the rule that fails a test on any console error or warning. The demo machine needs Google Chrome installed.
 
 ## Lockfile note

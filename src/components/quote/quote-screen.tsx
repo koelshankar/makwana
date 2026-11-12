@@ -24,7 +24,8 @@ export function QuoteScreen() {
   const room = useRoomValidation();
   const blocked = hasBlocked(results);
   const scene = useRef<SceneApi>(null);
-  const model = useMemo(() => quoteModel(project, catalogue, results), [project, results]);
+  const approvalMode = useProjectStore((s) => s.settings.approvalMode);
+  const model = useMemo(() => quoteModel(project, catalogue, results, { approvalMode }), [project, results, approvalMode]);
 
   if (!room.ok || blocked) {
     return (

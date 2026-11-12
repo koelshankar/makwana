@@ -1,7 +1,7 @@
 // Quote identity, the approval workflow and the quote document model. Pure: every helper takes
 // the time and the person explicitly and returns a new project.
 
-import { getAppliance, getCarcass, getFinish, getHardware, getModule } from "./catalogue";
+import { catalogue as defaultCatalogue, getAppliance, getCarcass, getFinish, getHardware, getModule } from "./catalogue";
 import { findPlacement, isModulePlacement } from "./geometry";
 import { PRICE_GROUP_LABELS, priceProject, type PriceLine } from "./pricing";
 import { runRawChecks } from "./rules";
@@ -111,13 +111,13 @@ export function markShared(project: Project, at: string, by: string, how: string
 }
 
 /**
- * Download PDF: an approved quote's PDF is shared with the customer; any other is a draft (it
- * carries the DRAFT watermark), logged as such and not counted as a share.
+ * Download PDF: a final quote's PDF (see isQuoteFinal) is shared with the customer; any other is a
+ * draft (it carries the DRAFT watermark), logged as such and not counted as a share.
  */
-export function markPdfDownloaded(project: Project, at: string, by: string): Project {
+export function markPdfDownloaded(project: Project, at: string, by: string, settings: Pick<QuoteSettings, "approvalMode">, results?: CheckResult[]): Project {
   if (!project.quote) return project;
-  if (project.status === "approved") return markShared(project, at, by, "PDF downloaded to send");
-  return logActivity(project, at, by, "draft_downloaded", "Draft PDF downloaded");
+  if (isQuoteFinal(project, settings, results)) return markShared(project, at, by, "PDF downloaded to send");
+  return logActivity(project, at, by, "draft_downloaded", `Draft PDF downloaded · Version ${project.quote.version}`);
 }
 
 /** The approval-status rule results (discount above the limit, custom sizes). */
@@ -132,14 +132,28 @@ export function approvalLabel(r: CheckResult, cat?: Catalogue): string {
   return r.message;
 }
 
+/** The demo settings the quote workflow reads (the store's Settings has these fields). */
+export interface QuoteSettings {
+  approvalMode: ApprovalMode;
+}
+
 /**
- * Whether the quote may go to the customer: once approved; or, in "only when flagged" mode, a
- * draft with nothing that needs approval (sharing gives it its number if it has none yet).
+ * Whether the quote is final, to go to the customer as it is: approved; or, in "only when flagged"
+ * mode, nothing in it needs approval. A final quote's PDF has no DRAFT watermark and its download
+ * is logged as a share. `results` are the raw rule checks, computed if not given.
+ */
+export function isQuoteFinal(project: Project, settings: Pick<QuoteSettings, "approvalMode">, results: CheckResult[] = runRawChecks(project, defaultCatalogue)): boolean {
+  if (project.status === "approved") return true;
+  return settings.approvalMode === "flagged" && approvalItems(results).length === 0;
+}
+
+/**
+ * Whether the quote may go to the customer: a final quote with no blocked checks (sharing gives
+ * it its number if it has none yet).
  */
 export function canShare(project: Project, results: CheckResult[], mode: ApprovalMode): boolean {
   if (results.some((r) => r.status === "blocked")) return false;
-  if (project.status === "approved") return true;
-  return mode === "flagged" && approvalItems(results).length === 0;
+  return isQuoteFinal(project, { approvalMode: mode }, results);
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +211,7 @@ export interface QuoteModel {
     ruleSetVersion: string;
     approvedBy?: string;
     approvedAt?: string;
-    /** "DRAFT" across every page of the PDF until the quote is approved. */
+    /** "DRAFT" across every page of the PDF until the quote is final (see isQuoteFinal). */
     watermark?: "DRAFT";
   };
   summary: {
@@ -246,7 +260,8 @@ const INCLUDED_SUBS: Record<string, string> = {
   "drawer-standard": "Drawer units",
 };
 
-export function quoteModel(project: Project, cat: Catalogue, results: CheckResult[] = runRawChecks(project, cat)): QuoteModel {
+/** `settings` decide the DRAFT watermark (see isQuoteFinal); without them, approval is always needed. */
+export function quoteModel(project: Project, cat: Catalogue, results: CheckResult[] = runRawChecks(project, cat), settings: Pick<QuoteSettings, "approvalMode"> = { approvalMode: "always" }): QuoteModel {
   const pricing = priceProject(project, cat);
   const created = project.quote?.createdAt ?? new Date().toISOString();
 
@@ -333,7 +348,7 @@ export function quoteModel(project: Project, cat: Catalogue, results: CheckResul
       ruleSetVersion: project.quote?.ruleSetVersion ?? RULE_SET_VERSION,
       approvedBy: project.quote?.approvedBy,
       approvedAt: project.quote?.approvedAt ? formatDate(project.quote.approvedAt) : undefined,
-      watermark: project.status === "approved" ? undefined : "DRAFT",
+      watermark: isQuoteFinal(project, settings, results) ? undefined : "DRAFT",
     },
     summary: {
       walls: project.room.walls.length,

@@ -119,7 +119,8 @@ export function PrintQuote() {
   /** A data URL, "" when 3D isn't available, null while it is still being rendered. */
   const snapshot = handed ?? ownShot;
   const results = useMemo(() => runRawChecks(project, catalogue), [project]);
-  const model = useMemo(() => quoteModel(project, catalogue, results), [project, results]);
+  const approvalMode = useProjectStore((s) => s.settings.approvalMode);
+  const model = useMemo(() => quoteModel(project, catalogue, results, { approvalMode }), [project, results, approvalMode]);
   const walls = project.room.walls.filter((w) => placementsOnWall(project, w.id).length > 0);
   const h = model.header;
   const [ready, setReady] = useState(false);

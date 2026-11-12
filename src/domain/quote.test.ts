@@ -9,6 +9,7 @@ import {
   formatDate,
   formatQuoteNumber,
   logActivity,
+  isQuoteFinal,
   markPdfDownloaded,
   markShared,
   quoteModel,
@@ -94,6 +95,13 @@ describe("workflow", () => {
     expect(quoteModel(returnToDraft({ ...approved, discountPct: 3 }, T, "Rohan Desai"), catalogue).header.watermark).toBe("DRAFT");
   });
 
+  it("drops the watermark in \"Only when flagged\" mode when nothing needs approval", () => {
+    const flagged = { approvalMode: "flagged" as const };
+    expect(quoteModel(quoted, catalogue, undefined, flagged).header.watermark).toBeUndefined();
+    expect(quoteModel({ ...quoted, discountPct: 8 }, catalogue, undefined, flagged).header.watermark).toBe("DRAFT");
+    expect(quoteModel(quoted, catalogue, undefined, { approvalMode: "always" }).header.watermark).toBe("DRAFT");
+  });
+
   it("customer, site, project name and kitchen type count as changes: they print on the approved quote (#6)", () => {
     const approved = approve(sendForApproval(quoted, T, "Rohan Desai"), T, "Store Manager");
     for (const patch of [{ customerName: "Someone Else" }, { siteAddress: "Elsewhere" }, { name: "Another kitchen" }, { kitchenType: "open" as const }]) {
@@ -124,14 +132,41 @@ describe("workflow", () => {
     expect(logActivity(shared, T, "R", "discount_changed", "x").activity).toHaveLength(3);
   });
 
-  it("logs a PDF download as a share only once approved", () => {
-    const draft = markPdfDownloaded(quoted, T, "R");
-    expect(draft.activity!.at(-1)).toMatchObject({ action: "draft_downloaded", detail: "Draft PDF downloaded" });
-    const pending = markPdfDownloaded(sendForApproval(quoted, T, "R"), T, "R");
-    expect(pending.activity!.at(-1)).toMatchObject({ action: "draft_downloaded" });
-    const approved = markPdfDownloaded(approve(sendForApproval(quoted, T, "R"), T, "M"), T, "R");
-    expect(approved.activity!.at(-1)).toMatchObject({ action: "shared", detail: "Version 1 shared with Anil Mehta · PDF downloaded to send" });
-    expect(markPdfDownloaded(sampleDesign, T, "R")).toBe(sampleDesign); // no quote yet: nothing to log
+  it("isQuoteFinal: approved, or nothing needs approval in \"Only when flagged\" mode", () => {
+    const always = { approvalMode: "always" as const };
+    const flagged = { approvalMode: "flagged" as const };
+    const discounted = { ...quoted, discountPct: 8 }; // above the 5% limit: needs approval
+    const pending = sendForApproval(discounted, T, "R");
+    const approved = approve(pending, T, "M");
+    // Always: only an approved quote is final.
+    expect(isQuoteFinal(quoted, always)).toBe(false);
+    expect(isQuoteFinal(pending, always)).toBe(false);
+    expect(isQuoteFinal(approved, always)).toBe(true);
+    // Only when flagged: final when nothing needs approval, whatever the status.
+    expect(isQuoteFinal(quoted, flagged)).toBe(true);
+    expect(isQuoteFinal(sampleDesign, flagged)).toBe(true);
+    expect(isQuoteFinal(discounted, flagged)).toBe(false);
+    expect(isQuoteFinal(pending, flagged)).toBe(false);
+    expect(isQuoteFinal(approved, flagged)).toBe(true);
+    // Given results are used as they are.
+    expect(isQuoteFinal(quoted, flagged, raw(discounted))).toBe(false);
+  });
+
+  it("logs a PDF download as a share only when the quote is final, in both modes", () => {
+    const always = { approvalMode: "always" as const };
+    const flagged = { approvalMode: "flagged" as const };
+    const draft = markPdfDownloaded(quoted, T, "R", always);
+    expect(draft.activity!.at(-1)).toMatchObject({ action: "draft_downloaded", detail: "Draft PDF downloaded · Version 1" });
+    expect(markPdfDownloaded(sendForApproval(quoted, T, "R"), T, "R", always).activity!.at(-1)).toMatchObject({ action: "draft_downloaded" });
+    const approved = approve(sendForApproval(quoted, T, "R"), T, "M");
+    const share = { action: "shared", detail: "Version 1 shared with Anil Mehta · PDF downloaded to send" };
+    expect(markPdfDownloaded(approved, T, "R", always).activity!.at(-1)).toMatchObject(share);
+    expect(markPdfDownloaded(quoted, T, "R", flagged).activity!.at(-1)).toMatchObject(share);
+    expect(markPdfDownloaded({ ...quoted, discountPct: 8 }, T, "R", flagged).activity!.at(-1)).toMatchObject({ action: "draft_downloaded" });
+    // A draft of version 2 says so.
+    const v2 = returnToDraft({ ...approved, discountPct: 3 }, T, "R");
+    expect(markPdfDownloaded(v2, T, "R", always).activity!.at(-1)).toMatchObject({ detail: "Draft PDF downloaded · Version 2" });
+    expect(markPdfDownloaded(sampleDesign, T, "R", flagged)).toBe(sampleDesign); // no quote yet: nothing to log
   });
 });
 

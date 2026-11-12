@@ -73,7 +73,7 @@ test("download assigns a number", async ({ page, context }) => {
   // The footer button logs the download in Activity (M3). Not approved: a draft, not a share.
   await page.locator("[data-activity-log] > button").click();
   await expect(page.locator("[data-activity=draft_downloaded]")).toHaveCount(1);
-  await expect(page.locator("[data-activity=draft_downloaded]")).toContainText("Draft PDF downloaded");
+  await expect(page.locator("[data-activity=draft_downloaded]")).toContainText("Draft PDF downloaded · Version 1");
   await expect(page.locator("[data-activity=shared]")).toHaveCount(0);
 
   // Approved: the same button logs a share.
@@ -103,6 +103,32 @@ test('share in "Only when flagged" mode', async ({ page }) => {
   await expect(page.locator("[data-share-dialog]")).toBeVisible();
   await expect(title(page)).toHaveText("Quote MMK-AND-2026-0147 · Version 1");
   await expect(page.locator("[data-share-dialog]")).toContainText("MMK-AND-2026-0147");
+});
+
+test('"Only when flagged", discount 0: share and download give a final PDF, logged as a share', async ({ page, context }) => {
+  await context.addInitScript(() => (window.print = () => {}));
+  await open(page, "/setup");
+  await resetDemo(page);
+  await page.getByRole("button", { name: "Demo menu" }).click();
+  await page.getByRole("menuitemradio", { name: "Only when flagged" }).click();
+  await page.keyboard.press("Escape");
+  await loadSample(page);
+  await stepper(page, "Quote").click();
+  await expect(page.getByLabel("Discount percent")).toHaveValue("0");
+  await expect(pill(page)).toHaveText("Draft");
+
+  await page.locator("[data-share]").click();
+  await page.locator("[data-share-dialog]").getByRole("button", { name: "Download PDF" }).click();
+  await expect(page).toHaveURL(/\/quote\/print/);
+  await expect(page.locator("[data-print-ready]")).toBeVisible();
+  await expect(page.locator("body")).toContainText("MMK-AND-2026-0147");
+  await expect(page.locator("[data-watermark]"), "no DRAFT watermark: nothing needs approval").toHaveCount(0);
+
+  await page.getByRole("link", { name: "Back to the quote" }).click();
+  await page.locator("[data-activity-log] > button").click();
+  await expect(page.locator("[data-activity=shared]")).toHaveCount(1);
+  await expect(page.locator("[data-activity=shared]")).toContainText("Version 1 shared with Anil Mehta · PDF downloaded to send");
+  await expect(page.locator("[data-activity=draft_downloaded]")).toHaveCount(0);
 });
 
 test("clipboard unavailable", async ({ page }) => {

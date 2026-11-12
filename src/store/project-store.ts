@@ -188,7 +188,7 @@ export interface ProjectState {
   /** Needs a comment; the salesperson sees it as a banner. */
   sendBack: (comment: string) => void;
   markShared: (how: string) => void;
-  /** Download PDF: a share if approved, otherwise a draft download (see markPdfDownloaded). */
+  /** Download PDF: a share if the quote is final, otherwise a draft download (see isQuoteFinal). */
   markPdfDownloaded: () => void;
   setRole: (role: Role) => void;
   setApprovalMode: (mode: ApprovalMode) => void;
@@ -676,7 +676,7 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           approve: () => workflow((p) => approve(p, now(), actor())),
           sendBack: (comment) => workflow((p) => sendBack(p, now(), actor(), comment)),
           markShared: (how) => workflow((p) => markShared(p, now(), actor(), how)),
-          markPdfDownloaded: () => workflow((p) => markPdfDownloaded(p, now(), actor())),
+          markPdfDownloaded: () => workflow((p) => markPdfDownloaded(p, now(), actor(), get().settings)),
           setRole: (role) =>
             set((s) => {
               s.settings.role = role;
