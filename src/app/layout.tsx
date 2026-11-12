@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { TabGuard } from "@/components/shell/tab-guard";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -27,7 +28,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased">
-        <TooltipProvider delay={200}>{children}</TooltipProvider>
+        <TooltipProvider delay={200}>
+          <TabGuard>{children}</TabGuard>
+        </TooltipProvider>
         <Toaster theme="light" position="bottom-center" offset={{ bottom: 88 }} />
       </body>
     </html>
