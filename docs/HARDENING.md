@@ -37,6 +37,18 @@ Final run (pass 1): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/
 
 Final run (pass 2): `npm test` 172/172, `tsc` and `lint` clean, build passes (`/design` 339 kB, shared 233 kB). `npx playwright test`: 38 passed, 2 skipped (automatic performance mode, see section 7), 40 in all across both sizes. That count includes the console guard's expected-failure self-check.
 
+Final run (pass 3, the fixes below): `npm test` 174/174, `tsc` and `lint` clean, build passes (`/design` 339 kB, shared 233 kB). `npx playwright test`: 38 passed, 2 skipped (the same automatic performance mode half), 40 in all.
+
+## Pass 3 fixes
+
+| ID | Fix | Test |
+|---|---|---|
+| M1 | `snapOffset` tries a free wall end first, then neighbour edges, then the other run ends, then features. A wall end counts only if the unit there would overlap nothing, so the column in the A/H corner is never a target. | Unit: wall end beats a neighbour in reach; occupied end skipped. e2e: the main script drops BC1000 20 mm short of the end of wall A again; it lands at 2200 at both sizes. (With the old order it landed at 2100 at 1366.) |
+| M2 | The elevation draws a selected unit as an accent outline over its normal finish tint. Blocked units keep their red fill. The plan is unchanged: it fills units by layer, not finish. | e2e: in the main script the tint (`data-finish-tint`) changes to the new finish while HU900 is still selected. |
+| M3 | The share log moved into `useDownloadPdf`, which both the footer and the Share dialog use, so each download logs once. A Download PDF before approval (the DRAFT PDF) now logs a share too. | e2e: the footer button logs one "PDF downloaded to send" entry (focused "download assigns a number"). The main script still sees exactly two shares. |
+| D5 | The Totals card hides "above 5% · needs approval" once the quote is approved. It still shows in draft and while pending; "within salesperson limit" is unchanged. | e2e: the main script sees the note while pending and no note after approval. |
+
+
 ## Brief: "Fixed on Day 10" check
 
 Checked in the code, then measured in Chrome against the production build at 1366×768 and 1440×900 (sample design; a temporary Playwright script, not kept).
@@ -47,7 +59,7 @@ Checked in the code, then measured in Chrome against the production build at 136
 | D2 | Group cost tags hidden below 1400 px | Holds | `data-group-tags="below"` shows under `min-[1400px]`. 1366: all four groups show tags on a second line. 1440: tags inline. |
 | D3 | Design wall tabs cut off ("Wal…") at 1366 | Holds | Tabs are `shrink-0 whitespace-nowrap` in a scrolling tab list with a fade at the right edge below 1440. All nine tabs measure full width at both sizes. |
 | D4 | Room Setup footer cut off all three texts when open | Holds | Only the third chip (the room issue) may truncate; it carries the full text as a tooltip. With wall B at 2462: 1366 shows "Room open · 8 walls" and "6 features placed" in full and "The room isn't closed yet (open by 62 m…"; 1440 shows all three in full. |
-| D5 | After approval the Quote screen still said "Needs manager approval" | **Partly** | The checks summary reads "Approved by Store Manager" (`ChecksSummary` with `approvedBy`). But the Totals card's discount note (`quote-cards.tsx:95`) still reads "above 5% · needs approval" after approval, at both sizes. Not fixed in this pass; see Open items. |
+| D5 | After approval the Quote screen still said "Needs manager approval" | **Partly** (fixed in pass 3) | The checks summary reads "Approved by Store Manager" (`ChecksSummary` with `approvedBy`). But the Totals card's discount note still read "above 5% · needs approval" after approval, at both sizes. Pass 3 hides it once approved. |
 | D6 | Activity details squeezed to three lines at 1366; empty log showed nothing | Holds | Time and name are stacked in a 150 px column. Detail width 300 px at 1366 and 374 px at 1440; every entry in the main script fits on two lines. The empty log shows "Nothing yet. Discount changes, approvals and sharing are logged here." |
 | D7 | Quote small plan: overlapping cut-out and ceiling labels | Holds | `DesignPlan compact` drops dimensions, the ceiling label and the cut-out labels. The Quote small plan has no `<text>` at all. |
 | D8 | "THREE.Clock" deprecation warning on every 3D view | Holds | `kitchen-scene.tsx` drops exactly that message through `THREE.setConsoleFunction` (R3F 9 still creates a `THREE.Clock`). The console guard sees no warning on any 3D screen. Comes back if three's message text changes. |
@@ -59,13 +71,13 @@ One test, Reset demo to the PDF and the activity log, in one page with no reload
 
 How each line is checked, where it isn't obvious:
 
-- Snapping: each drop is aimed 20–40 mm off its place and must land exactly there (HU900 300, SU900 1200, BC1000 2200, BD600 560 and 1160). Positions are read from the saved project in localStorage.
+- Snapping: each drop is aimed 20–40 mm off its place and must land exactly there (HU900 300, SU900 1200, BC1000 2200 from 20 mm short of the wall end, BD600 560 and 1160). Positions are read from the saved project in localStorage.
 - The blocked card: the title says tall unit and window, "+1 more blocking issue", the fix "Move to Wall B, 1760–2360 mm", and nothing placed. After the fix: T600OM at B 1760, and a 40 mm gap warning on Wall B.
 - Filler: a filler at A 2100 +100, then a single check left (the 40 mm warning), and Review Quote enabled.
 - Appliances: green hosts (`data-host`) for the sink, hob and oven while dragging. Sink, hob, oven and microwave fitted into the right units; chimney at A 300, above the hob; "5 appliances". Cut-outs in the elevation ("Sink cut-out", "Hob cut-out") and the plan (`data-cutout`).
-- Finish: 3D picture, unit price, running total and footer delta change; the footer delta equals the change in the total.
+- Finish: with the unit still selected, the elevation's finish tint, the 3D picture, the unit price, the running total and the footer delta all change; the delta equals the change in the total.
 - Customer view: fills the viewport, project name, wall height, presets, and no buttons beyond the view controls. Esc leaves it, and so does Exit. Project and footer are unchanged.
-- Quote: no number before sending; 0147 after; manager banner and buttons; "Approved by Store Manager". The clipboard holds the quote number and the grand total. `window.print` is stubbed and must be called once. The print page has 0147, Approved, a decoded 3D image, a plan with both cut-outs, elevations A and B, unit codes, totals and no watermark. With print media the toast and the screen controls are hidden. Activity has six entries in order (discount, created, sent, approved, shared, shared), each with seconds. `nextQuoteSeq` is 148 at the end: one number used.
+- Quote: no number before sending; 0147 after; "needs approval" note while pending; manager banner and buttons; "Approved by Store Manager" and no "needs approval" note. The clipboard holds the quote number and the grand total. `window.print` is stubbed and must be called once. The print page has 0147, Approved, a decoded 3D image, a plan with both cut-outs, elevations A and B, unit codes, totals and no watermark. With print media the toast and the screen controls are hidden. Activity has six entries in order (discount, created, sent, approved, shared, shared), each with seconds. `nextQuoteSeq` is 148 at the end: one number used.
 
 What the test cannot see: the native print dialog and the saved PDF file; whether the 3D cut-outs are *right* (it checks only that the 3D picture changed after the drops); real full screen (headless). In the test, Esc is a synthetic key, so the test leaves browser full screen itself, as a real Esc would.
 
@@ -75,10 +87,10 @@ Findings from writing it:
 
 | ID | Severity | Finding |
 |---|---|---|
-| M1 | Demo risk | **BC1000 can snap onto SU900 at 1366.** Neighbour edges win over the wall end, and the snap distance is 8 px: 87 mm at 1366, 79 mm at 1440. Dropped 13–87 mm short of the end of wall A at 1366, BC1000 lands at 2100 against SU900. The 100 mm gap, its warning and the filler step of the script then never happen. Dropped at the end or past it, it lands at 2200. The test drops 20 mm past the end. Options: try the nearest target across neighbour and run-end classes, or have the presenter drag past the wall end. |
-| M2 | Minor | **A finish change doesn't show in the elevation while the unit is selected.** The elevation fills a selected unit with the selection colour (`--mk-accent-soft`). The brief says "elevation, 3D and price change together"; the 3D view and price do, but the elevation shows the new finish only after Esc or clicking away. The test checks the elevation after Esc. |
-| M3 | Brief | **"Shared twice" needs Download PDF from the Share dialog.** That button logs a share; the footer's Download PDF doesn't. The brief says "Click Download PDF" right after Copy, with the dialog still open, so the test uses the dialog's button. A presenter using the footer button gets five entries, not six. |
-| M4 | Minor (D5) | After approval the Totals note still reads "above 5% · needs approval" (see D5). The test doesn't assert it either way. |
+| M1 | Demo risk (fixed in pass 3) | **BC1000 can snap onto SU900 at 1366.** Neighbour edges win over the wall end, and the snap distance is 8 px: 87 mm at 1366, 79 mm at 1440. Dropped 13–87 mm short of the end of wall A at 1366, BC1000 lands at 2100 against SU900. The 100 mm gap, its warning and the filler step of the script then never happen. Dropped at the end or past it, it lands at 2200. Pass 3: a free wall end now wins. |
+| M2 | Minor (fixed in pass 3) | **A finish change doesn't show in the elevation while the unit is selected.** The elevation fills a selected unit with the selection colour (`--mk-accent-soft`). The brief says "elevation, 3D and price change together"; the 3D view and price do, but the elevation shows the new finish only after Esc or clicking away. Pass 3: the selected unit is an outline over its finish tint. |
+| M3 | Brief (fixed in pass 3) | **"Shared twice" needed Download PDF from the Share dialog.** That button logs a share; the footer's Download PDF doesn't. The brief says "Click Download PDF" right after Copy, with the dialog still open, so the test uses the dialog's button. Pass 3: the footer button logs the same entry. |
+| M4 | Minor (D5, fixed in pass 3) | After approval the Totals note still read "above 5% · needs approval" (see D5). |
 
 ## Brief: section 7 focused tests (`e2e/focused.spec.ts`)
 
@@ -101,8 +113,6 @@ Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs
 
 ## Open items
 
-- D5: after approval, the Totals discount note still reads "above 5% · needs approval". A presenter would see it right after approving. Fix: pass the approval to `TotalsCard` and read "above 5% · approved by Store Manager".
-- M1: BC1000 snapping at 1366 (see the main script findings).
 - Section 7 still needs a person for: WebGL off (Chrome restart), automatic performance mode on a slow machine, the native print dialog and saved PDF, real full screen, and the icon's look.
 - #1: install, build and run `npm start` once offline on the demo laptop.
 - Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
