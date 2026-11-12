@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { onSaveFailed, projectStore, useHydrated } from "@/store/project-store";
+import { onSaveFailed, projectStore, restoreSavedProject, useHydrated } from "@/store/project-store";
 import { ScreenBoundary } from "./screen-boundary";
 import { ShellSkeleton } from "./shell-skeleton";
 import { TopBar } from "./top-bar";
@@ -16,7 +16,7 @@ function isTextField(target: EventTarget | null) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const hydrated = useHydrated();
   useEffect(() => {
-    void projectStore.persist.rehydrate();
+    void restoreSavedProject();
   }, []);
 
   useEffect(() => {

@@ -3,7 +3,7 @@ import { placementsOnWall } from "@/domain/geometry";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import { unit } from "@/domain/testing";
 import type { ModulePlacement } from "@/domain/types";
-import { createProjectStore, guardedStorage, initialSettings, initialUi, PERSIST_KEY, PERSIST_VERSION, startOver, type NewModule } from "./project-store";
+import { createProjectStore, guardedStorage, initialSettings, initialUi, isRestored, PERSIST_KEY, PERSIST_VERSION, restoreSavedProject, startOver, type NewModule } from "./project-store";
 
 /** A placement without an id, so the store assigns one. */
 function draft(m: ModulePlacement): NewModule {
@@ -165,6 +165,33 @@ describe("persistence", () => {
     const store = createProjectStore(sampleDesign, mem.storage);
     await store.persist.rehydrate();
     expect(store.getState().project).toEqual(sampleDesign);
+  });
+
+  it("restoring that throws falls back to the empty Mehta room with the toast flag, never a stuck skeleton (#9)", async () => {
+    const store = createProjectStore(sampleDesign, () => ({
+      getItem: () => Promise.reject(new Error("storage exploded")),
+      setItem: () => {},
+      removeItem: () => {},
+    }));
+    await restoreSavedProject(store);
+    expect(store.persist.hasHydrated()).toBe(false); // zustand's own flag stays false after an error…
+    expect(isRestored(store)).toBe(true); // …so the screens use this instead
+    expect(store.getState().project).toEqual(emptyMehta);
+    expect(store.getState().ui.restoreFailed).toBe(true);
+    // Loading a project afterwards doesn't put the screens back on the skeleton.
+    store.getState().loadProject(sampleDesign);
+    expect(isRestored(store)).toBe(true);
+  });
+
+  it("restoring that throws synchronously also falls back (#9)", async () => {
+    const store = createProjectStore(sampleDesign);
+    store.persist.rehydrate = () => {
+      throw new Error("sync failure");
+    };
+    await restoreSavedProject(store);
+    expect(isRestored(store)).toBe(true);
+    expect(store.getState().project).toEqual(emptyMehta);
+    expect(store.getState().ui.restoreFailed).toBe(true);
   });
 
   it("keeps the quote counter when the save version changes (#7)", async () => {

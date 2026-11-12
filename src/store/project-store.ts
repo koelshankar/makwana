@@ -118,6 +118,13 @@ export interface ProjectState {
   /** Undo/redo snapshots of `project`. Immer's structural sharing keeps these cheap. */
   past: Project[];
   future: Project[];
+  /**
+   * Restoring the saved project threw, and the empty Mehta room was loaded instead. Screens treat
+   * the store as restored (persist's own flag stays false after an error). Never persisted.
+   */
+  restoreErrored: boolean;
+  /** The fallback when restoring throws: the empty Mehta room, with the "couldn't be opened" toast. */
+  recoverFromRestoreError: () => void;
 
   /** Replaces the project and clears history (demo menu, "new project"). */
   loadProject: (project: Project) => void;
@@ -418,6 +425,16 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           settings: initialSettings,
           past: [],
           future: [],
+          restoreErrored: false,
+
+          recoverFromRestoreError: () =>
+            set((s) => {
+              s.project = emptyMehta;
+              s.ui = { ...initialUi, restoreFailed: true };
+              s.past = [];
+              s.future = [];
+              s.restoreErrored = true;
+            }),
 
           loadProject: (project) =>
             set((s) => {
@@ -714,6 +731,11 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           const old = (typeof persisted === "object" && persisted !== null ? persisted : {}) as { settings?: unknown };
           return { project: initial, settings: { ...initialSettings, nextQuoteSeq: restoreSettings(old.settings, initialSettings).nextQuoteSeq } };
         },
+        // Anything that throws while restoring (storage, migrate, merge) would leave persist's
+        // hydrated flag false and the screens on the skeleton for good: load the empty Mehta room.
+        onRehydrateStorage: (state) => (_restored, error) => {
+          if (error) state.recoverFromRestoreError();
+        },
         // Rehydrated on the client after mount, so server and first client render agree.
         skipHydration: true,
       },
@@ -739,11 +761,33 @@ export function startOver(store: ProjectStore = projectStore): void {
   store.getState().resetDemo();
 }
 
-/** True once the saved project has been restored (or there was none). Screens wait for it. */
+/** Restores the saved project; if that fails in any way, falls back to the empty Mehta room. */
+export function restoreSavedProject(store: ProjectStore = projectStore): Promise<void> {
+  try {
+    return Promise.resolve(store.persist.rehydrate()).catch(() => store.getState().recoverFromRestoreError());
+  } catch {
+    store.getState().recoverFromRestoreError();
+    return Promise.resolve();
+  }
+}
+
+/** True once the saved project has been restored, there was none, or restoring failed and fell back. */
+export function isRestored(store: ProjectStore = projectStore): boolean {
+  return store.persist.hasHydrated() || store.getState().restoreErrored;
+}
+
+/** Screens wait for this before reading the project. */
 export function useHydrated(store: ProjectStore = projectStore): boolean {
   return useSyncExternalStore(
-    (onChange) => store.persist.onFinishHydration(onChange),
-    () => store.persist.hasHydrated(),
+    (onChange) => {
+      const offHydration = store.persist.onFinishHydration(onChange);
+      const offStore = store.subscribe(onChange);
+      return () => {
+        offHydration();
+        offStore();
+      };
+    },
+    () => isRestored(store),
     () => false,
   );
 }

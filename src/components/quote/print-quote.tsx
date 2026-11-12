@@ -16,7 +16,7 @@ import { formatINR } from "@/domain/format";
 import { placementsOnWall } from "@/domain/geometry";
 import { quoteModel, type QuoteItem } from "@/domain/quote";
 import { runRawChecks } from "@/domain/rules";
-import { projectStore, useHydrated, useProjectStore } from "@/store/project-store";
+import { isRestored, restoreSavedProject, useHydrated, useProjectStore } from "@/store/project-store";
 import { UnitTable } from "./quote-groups";
 import { ChecksSummary, IncludedBadge, STATUS_TEXT, Swatch } from "./quote-parts";
 
@@ -105,7 +105,7 @@ function Items({ title, total, items, qty }: { title: string; total: number; ite
 export function PrintQuote() {
   const hydrated = useHydrated();
   useEffect(() => {
-    if (!projectStore.persist.hasHydrated()) void projectStore.persist.rehydrate();
+    if (!isRestored()) void restoreSavedProject();
   }, []);
   const project = useProjectStore((s) => s.project);
   const handed = useProjectStore((s) => s.ui.snapshot);
