@@ -19,6 +19,7 @@ import { runRawChecks } from "@/domain/rules";
 import { isRestored, restoreSavedProject, useHydrated, useProjectStore } from "@/store/project-store";
 import { UnitTable } from "./quote-groups";
 import { ChecksSummary, IncludedBadge, STATUS_TEXT, Swatch } from "./quote-parts";
+import { snapshotStep } from "./snapshot-wait";
 
 const KitchenScene = dynamic(() => import("@/components/three/kitchen-scene").then((m) => m.KitchenScene), { ssr: false });
 const EMPTY = new Set<string>();
@@ -42,12 +43,16 @@ function OffscreenSnapshot({ onShot }: { onShot: (url: string) => void }) {
   useEffect(() => {
     let cancelled = false;
     let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const started = Date.now();
     const attempt = () => {
       if (cancelled) return;
-      if (api.current && tries > 6) {
+      const step = snapshotStep(!!api.current, tries, Date.now() - started);
+      if (step === "give-up") return onShot(""); // Prints without the picture ("not available").
+      if (step === "shoot") {
         let url = "";
         try {
-          url = api.current.snapshot();
+          url = api.current!.snapshot();
         } catch {
           // Shown as "not available" in the document.
         }
@@ -55,11 +60,12 @@ function OffscreenSnapshot({ onShot }: { onShot: (url: string) => void }) {
         return;
       }
       tries++;
-      setTimeout(attempt, 150);
+      timer = setTimeout(attempt, 150);
     };
     attempt();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [onShot]);
   return (
