@@ -70,6 +70,10 @@ test("download assigns a number", async ({ page, context }) => {
   await expect(page.locator("body")).toContainText("MMK-AND-2026-0147");
   await page.getByRole("link", { name: "Back to the quote" }).click();
   await expect(title(page)).toHaveText("Quote MMK-AND-2026-0147 · Version 1");
+  // The footer button logs the download in Activity, as the Share dialog's button does (M3).
+  await page.locator("[data-activity-log] > button").click();
+  await expect(page.locator("[data-activity=shared]")).toHaveCount(1);
+  await expect(page.locator("[data-activity=shared]")).toContainText("Version 1 shared with Anil Mehta · PDF downloaded to send");
 });
 
 test('share in "Only when flagged" mode', async ({ page }) => {
