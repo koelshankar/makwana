@@ -244,7 +244,13 @@ const browserStorage = (): StateStorage => {
           // Quota or privacy mode: the demo keeps working, just unsaved.
         }
       },
-      removeItem: (k) => ls.removeItem(k),
+      removeItem: (k) => {
+        try {
+          ls.removeItem(k);
+        } catch {
+          // Blocked storage: nothing to clear.
+        }
+      },
     };
   } catch {
     return noStorage;
@@ -695,6 +701,15 @@ export const projectStore = createProjectStore(sampleDesign, browserStorage);
 
 export function useProjectStore<T>(selector: (state: ProjectState) => T): T {
   return useStore(projectStore, selector);
+}
+
+/**
+ * The way out of an error screen: clears the saved project (`makwana:project`) and runs Reset demo,
+ * so a save that keeps crashing a screen can't come back on reload.
+ */
+export function startOver(store: ProjectStore = projectStore): void {
+  void store.persist.clearStorage();
+  store.getState().resetDemo();
 }
 
 /** True once the saved project has been restored (or there was none). Screens wait for it. */

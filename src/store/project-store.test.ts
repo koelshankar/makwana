@@ -3,7 +3,7 @@ import { placementsOnWall } from "@/domain/geometry";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import { unit } from "@/domain/testing";
 import type { ModulePlacement } from "@/domain/types";
-import { createProjectStore, initialSettings, initialUi, PERSIST_KEY, PERSIST_VERSION, type NewModule } from "./project-store";
+import { createProjectStore, initialSettings, initialUi, PERSIST_KEY, PERSIST_VERSION, startOver, type NewModule } from "./project-store";
 
 /** A placement without an id, so the store assigns one. */
 function draft(m: ModulePlacement): NewModule {
@@ -165,6 +165,22 @@ describe("persistence", () => {
     const store = createProjectStore(sampleDesign, mem.storage);
     await store.persist.rehydrate();
     expect(store.getState().project).toEqual(sampleDesign);
+  });
+
+  it("start over (#2): clears the saved project and resets the demo, so a reload can't bring the bad save back", async () => {
+    const mem = memoryStorage();
+    mem.data.set(PERSIST_KEY, JSON.stringify({ version: PERSIST_VERSION, state: { project: sampleDesign, settings: { ...initialSettings, nextQuoteSeq: 152, role: "manager" } } }));
+    const store = createProjectStore(sampleDesign, mem.storage);
+    await store.persist.rehydrate();
+    store.getState().setProjectInfo({ customerName: "Crashes the screen" });
+
+    startOver(store);
+    expect(store.getState().project).toEqual(emptyMehta);
+    expect(store.getState().settings).toEqual(initialSettings);
+    // What a reload would read: the reset state, never the old save.
+    const saved = JSON.parse(mem.data.get(PERSIST_KEY)!);
+    expect(saved.state.project).toEqual(emptyMehta);
+    expect(saved.state.settings.nextQuoteSeq).toBe(initialSettings.nextQuoteSeq);
   });
 });
 
