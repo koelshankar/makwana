@@ -356,6 +356,7 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     await page.getByRole("button", { name: "Send for Approval" }).click();
     await expect(title).toHaveText(`Quote ${QUOTE} · Version 1`);
     await expect(page.locator("[data-status-pill]")).toHaveText("Pending manager approval");
+    await expect(page.locator("[data-discount-note]")).toHaveText("above 5% · needs approval");
 
     await demoMenu(page, /Switch to Manager/);
     await expect(page.getByRole("status").filter({ hasText: "Waiting for your approval" })).toBeVisible();
@@ -367,6 +368,9 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     await demoMenu(page, /Switch to Salesperson/);
     await expect(page.locator("[data-status-pill]")).toHaveText("Approved");
     await expect(page.locator("[data-quote-checks]")).toContainText("Approved by Store Manager");
+    // D5: "needs approval" is gone once approved.
+    await expect(page.locator("[data-discount-note]")).toHaveCount(0);
+    await expect(page.locator("main")).not.toContainText("above 5% · needs approval");
     await shot("approved");
   });
 

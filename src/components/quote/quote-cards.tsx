@@ -91,9 +91,12 @@ export function TotalsCard({ model, editable }: { model: QuoteModel; editable: b
           <span className="flex items-center gap-2 text-[14px] text-mk-ink-2">
             Discount {editable ? <DiscountInput value={t.discountPct} /> : <span className="num">{t.discountPct}%</span>}
           </span>
-          <span className={cn("mt-1 block text-[12px]", t.withinLimit ? "text-mk-muted" : "font-medium text-[#2a5bb8]")} data-discount-note>
-            {t.withinLimit ? "within salesperson limit" : `above ${t.discountLimitPct}% · needs approval`}
-          </span>
+          {/* Once approved, "needs approval" is no longer true: the checks summary says who approved it. */}
+          {(t.withinLimit || model.header.status !== "approved") && (
+            <span className={cn("mt-1 block text-[12px]", t.withinLimit ? "text-mk-muted" : "font-medium text-[#2a5bb8]")} data-discount-note>
+              {t.withinLimit ? "within salesperson limit" : `above ${t.discountLimitPct}% · needs approval`}
+            </span>
+          )}
         </span>
         <span className="num text-[14px] whitespace-nowrap">{t.discount ? `−${formatINR(t.discount)}` : formatINR(0)}</span>
       </div>
