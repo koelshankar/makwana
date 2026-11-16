@@ -29,6 +29,15 @@ export function wallRect(f: WallFrame, a0: number, a1: number, d0: number, d1: n
   return [wallToWorld(f, a0, d0), wallToWorld(f, a1, d0), wallToWorld(f, a1, d1), wallToWorld(f, a0, d1)];
 }
 
+/** A gap's size for its label: its length, or "600 × 1000" (across, then along) once a wall was drawn into it. */
+function gapSize(w: Room["walls"][number]): string {
+  if (!w.gapMm) return mm(w.lengthMm);
+  return [w.gapMm.dy, w.gapMm.dx]
+    .filter((n) => n !== 0)
+    .map((n) => mm(Math.abs(n)))
+    .join(" × ");
+}
+
 /** Offset of a wall feature, or undefined for column/duct box. */
 export function featureOffset(f: Feature): number | undefined {
   return f.kind === "window" || f.kind === "door" || f.kind === "plumbing" ? f.offsetMm : undefined;
@@ -244,7 +253,7 @@ export function PlanBase({
               fill={selected ? C.accentInk : C.warn}
               pointerEvents="none"
             >
-              <tspan fontWeight={600}>{w.id}</tspan> · {mm(w.lengthMm)} · open
+              <tspan fontWeight={600}>{w.id}</tspan> · {gapSize(w)} · open
             </text>
             <title>{`Wall ${w.id} is open · ${w.lengthMm} mm`}</title>
           </g>

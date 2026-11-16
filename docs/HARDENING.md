@@ -117,6 +117,7 @@ Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs
 
 - Section 7 still needs a person for: WebGL off (Chrome restart), automatic performance mode on a slow machine, the native print dialog and saved PDF, real full screen, and the icon's look.
 - #1: install, build and run `npm start` once offline on the demo laptop.
+- **Same build on both Macs** (Feedback 2, item 1): a project saved after a wall was drawn from a free end carries `gapMm` or `room.start`. An older build can't read it and loads the empty Mehta room with "couldn't be opened".
 - **TO CONFIRM WITH MAKWANA**: the corner handle clearance (Feedback 2, item 4). `CORNER_CLEARANCE_MM` in `src/domain/rules/corner.ts` is 50 mm for "Standard with handle" and 50 mm for "Handleless profile". Both are placeholders, not from Makwana's hardware spec. The corner filler uses the existing FIL "Filler panel" (1–100 mm), so a figure over 100 mm needs a change.
 - Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
 
@@ -236,8 +237,8 @@ Branch: `feedback-1` (continued). One commit per item. Not merged.
 | 2 Remove the 3D wall labels | Done | `8b52877` |
 | 3 Move button replaces the round turn button | Done | `a222088` |
 | `insideCorners` helper | Done (no behaviour change) | `690f095` |
-| 4 Inside-corner door clash rule | Done | see "Item 4" below |
-| 1 Start a new wall from the end of any wall | Plan only: `docs/PLAN-wall-start.md` | — |
+| 4 Inside-corner door clash rule | Done | `c676de5` |
+| 1 Start a new wall from the end of any wall | Done | see "Item 1" below |
 
 ## Item 2: Remove the 3D wall labels
 
@@ -329,3 +330,49 @@ Also written into `docs/PLAN-wall-start.md` ("Decisions 2026-11-16"). Build orde
   - Unit (`src/domain/rules/corner.test.ts`, 17): the band table; base next to a wall unit, loft next to a wall unit (no clash); two lofts; wall units hidden and moved clear to A 2200; a base unit and a wall unit in front of a tall unit's doors, and one a unit's depth away (clear); no spot, with the reason; one message for a plain base corner, no gap or clash too; refused when placed, and the fast check agrees; the BC1000/BD600 warning and its filler; passes at the clearance; the run pushed along on B when A is full; the old sample with no room on either wall; tall blocked, refused, fast check, fixed; the 20 mm gap left to the clash rule; the filler priced as a FIL quote line; the clearance constants; the sample clean. Updated: the two old corner tests (now Blocked), the corner anchors, the sample's BC1000 position, the quote's base lines, the hob unit's turn (H, not C) and its fit list (A, H). Store: the tall unit refused, then placed with the filler as one undo step; the base unit's warning fix.
   - e2e (`e2e/corners.spec.ts`, both sizes): a) blocked, "Move clear of corner" places it at A 1990; b) a tall unit blocked, "Add corner filler" places it with BC1000 at 2150 and the filler at A 3150; b) a base unit warned, fixed, and the Quote lists the filler; a base unit and a wall unit in the corner: no card, all checks passed. The main script has the new step. The drag helpers moved to `e2e/drag.ts`.
 - **Checks.** `npm test` 245/245, `tsc` and `lint` clean, build passes (`/design` 346 kB, `/quote` 313 kB, `/setup` 311 kB, shared 237 kB). `npm run e2e`: 72 passed, 2 skipped (automatic performance mode), across both sizes: 64 plus the four corner tests at each size. The two ✘ lines in the output are the console guard's expected-failure self-check, which counts as passed.
+
+## Item 1: Start a new wall from any free end
+
+`src/domain/wall-ends.ts` (pure), the store's `drawWall` and `closeGap`, Room Setup's walls panel and plan. As planned in `docs/PLAN-wall-start.md`, with the decisions of 2026-11-16.
+
+- **Model (additive, no migration).** The room stays one ordered list of walls and gaps.
+  - A gap a wall has been drawn into carries its own vector, `gapMm: { dx, dy }`, which replaces length and heading for the room's shape (a deleted wall's own gap has none and is drawn back as before).
+  - `room.start` (default (0, 0)) moves only when a wall is drawn back from Wall A's start.
+  - `roomVertices` and `isChainClosed` read both; nothing else in Design, 3D, the quote or the PDF changes.
+  - The save check accepts both fields when well formed (`gapMm` only on an open segment, whole mm, not zero; `start` whole mm). `PERSIST_VERSION` stays 2.
+- **Free ends only.** A free end is the end of a standing wall where no standing wall meets it: the open chain's start and end, and both sides of every gap (`freeEnds`, in room order). Joined ends have no handle; no branches or T-junctions.
+- **Drawing** (`drawFromEnd`, one undo step). The new wall goes next to the clicked end. Every existing corner stays put, so features and units don't move.
+
+  | Clicked end | The new wall | What else changes |
+  |---|---|---|
+  | The chain's end | Appended, as before | Nothing |
+  | The end of a wall before a gap | Inserted before the gap | The gap shrinks |
+  | The start of a wall after a gap | Inserted after the gap, stored travelling back to that wall | The gap shrinks |
+  | Wall A's start (open chain) | Inserted first, stored travelling back to Wall A | `room.start` moves |
+
+  The direction buttons offer the two at right angles to the wall at that end, drawn away from it.
+- **Joining.** A new wall joins only when it ends exactly on its own gap's other end: the gap is removed and the right-angle check applies at the new joint. Closing the open chain works as before. Anything else stays open. A wall that touches or crosses another standing wall where they aren't neighbours is reported: "Wall I runs into Wall D." This check is new (`crossingWalls`); nothing detected crossing walls before.
+- **Gaps drawn into.**
+  - Reported as "The room is open between Wall B and Wall I (1000 mm)." and labelled "C · 600 × 1000 · open" on the plan.
+  - Their row and plan button say "Close gap", not "Draw wall": one or two right-angle walls from the gap's start to its end (`gapClosure`), turning off the wall before and into the wall after, with new letters. Disabled when they don't fit, e.g. a straight gap left after drawing straight on (the existing rule: two walls in a row turn a right angle).
+  - Close room fills every gap it can and the open end, still in one step.
+- **Order and letters.** A new wall takes the next free letter (gap letters stay held) and sits in room order. The walls list, the plan, the Design tabs, R / Shift+R and the Move list read A B I D… Walls are never renamed.
+- **The start of the next wall** is Room Setup view state (`setup-ui.ts` `wallStart`), not project data, so it isn't undone.
+  - With no click it is the chain's end when the chain is open (as before), otherwise the first free end in room order.
+  - After a draw it moves to the new wall's far end; after a join, back to the default.
+  - Esc, Done, or clicking the picked handle again clears it. If an undo joins the picked end, the default is used.
+- **UI.**
+  - While adding walls, each free end is a handle: 10 px, accent ring, a 12 px hit area, bigger on hover, with a tooltip such as "Start from the end of Wall B". The current start is filled.
+  - The panel reads "Wall I · from the start of Wall D · pick a direction and type its length". A dashed preview shows the new wall at the typed length.
+  - A closed room with no gaps shows no handles, and the panel says "The room is closed. Delete a wall to open it."
+- **Behaviour changes to check by hand.**
+  - Add wall in a closed room with no gaps no longer appends a wall (that used to open the room at Wall A's start). Delete a wall first.
+  - The right-angle check no longer compares a gap with its neighbours, only walls that meet.
+  - "Runs into" can flag a room that used to pass if two walls touched or crossed. No seed or template does.
+  - "Start" and "end" of a wall in the panel and tooltips follow the wall's drawing direction (the arrow in the walls list), which a salesperson may not think about.
+- **Tests.**
+  - Unit (`src/domain/wall-ends.test.ts`, 14): free ends for a closed room, a gap, an open chain, two gaps, a gap at A; the default end; drawing from each of the four kinds of end leaves every old vertex and wall frame unchanged; joins from either side give a closed, valid room; past the gap's end: "runs into", no join; an L-shaped gap that Close gap fills; a drawn-into gap that can't be closed straight; the inside corner made by a drawn wall; save validation of the new fields. `open-segments.test.ts` adds the two new gap fields.
+  - Store: a draw is one undo step, its letter skips the gap's, and a join closes the room. No free end means nothing is drawn. Draw wall leaves a drawn-into gap alone; Close room and Close gap fill an L-shaped gap in one step. A project saved before this change (`src/store/fixtures/save-2026-11-16-before-wall-ends.json`, written by the build before it: Walls C and G deleted, one unit) loads unchanged with no notice, and its gaps work with the new tools.
+  - Item 4 again: all corner unit and e2e tests re-run after item 1 and pass. A new unit test draws Wall I back from D's start (the clicked end) to close C's gap. A BC1000 and a BD600 at the new B/I corner give the clash warning and its filler, and two base units there give the hidden-front block.
+  - e2e (`e2e/wall-ends.spec.ts`, both sizes): click D's start, draw east 600. The wall runs from (2200, 2400) to D's start, sits in the list after the gap, the other walls are unchanged, the next start is the new wall's far end, and Esc goes back to the default. Clicking the joined A/B corner changes nothing (no handle, same start, same walls). Drawing west 1600 from B's end closes the gap: "Room closed · 8 walls", the new wall's outline is exactly the old Wall C's, Start Designing opens Design, and the tabs read A B I D E F G H.
+- **Checks.** `npm test` 264/264, `tsc` and `lint` clean, build passes (`/design` 348 kB, `/quote` 315 kB, `/setup` 313 kB, shared 239 kB). `npm run e2e`: 78 passed, 2 skipped (automatic performance mode), across both sizes: 72 plus the three wall-end tests at each size. The two ✘ lines are the console guard's expected-failure self-check.

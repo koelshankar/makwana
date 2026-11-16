@@ -30,6 +30,8 @@ Answers to the open questions at the end of this doc. Build order: the `insideCo
 
 **Kept**: the inspector's square turn button.
 
+**Built** (same day): the `insideCorners` helper, item 4 and item 1, one commit each on `feedback-1`. What was built, the behaviour changes and the tests are in `docs/HARDENING.md` ("Item 4" and "Item 1" under Feedback 2).
+
 ---
 
 # Item 1: Start a new wall from the end of any wall (by click)

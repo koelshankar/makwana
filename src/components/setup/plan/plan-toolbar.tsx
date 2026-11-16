@@ -11,7 +11,7 @@ import { addDuctBox } from "../features-section";
 import { useSetupUi, type Tool } from "../setup-ui";
 
 const HINTS: Partial<Record<Tool, string>> = {
-  drawWall: "Add walls in the panel: pick a direction, type a length",
+  drawWall: "Click a free end (a dot) to start there, then pick a direction and type a length in the panel",
   opening: "Click a wall to add an opening",
   plumbing: "Click a wall to add a plumbing point",
   column: "Click inside the room to place a column · snaps to walls within 150 mm",

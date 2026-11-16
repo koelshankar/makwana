@@ -1,0 +1,140 @@
+{
+  "state": {
+    "project": {
+      "id": "mehta",
+      "name": "Mehta Residence",
+      "customerName": "Anil Mehta",
+      "siteAddress": "Andheri West, Mumbai",
+      "preparedBy": "Rohan Desai",
+      "kitchenType": "closed",
+      "room": {
+        "walls": [
+          {
+            "id": "A",
+            "lengthMm": 3200,
+            "heading": "E",
+            "label": "East · window"
+          },
+          {
+            "id": "B",
+            "lengthMm": 2400,
+            "heading": "S",
+            "label": "South · beam"
+          },
+          {
+            "id": "C",
+            "lengthMm": 1600,
+            "heading": "W",
+            "label": "West",
+            "open": true
+          },
+          {
+            "id": "D",
+            "lengthMm": 450,
+            "heading": "N",
+            "label": "North · duct side"
+          },
+          {
+            "id": "E",
+            "lengthMm": 600,
+            "heading": "W",
+            "label": "West · duct face"
+          },
+          {
+            "id": "F",
+            "lengthMm": 450,
+            "heading": "S",
+            "label": "South · duct side"
+          },
+          {
+            "id": "G",
+            "lengthMm": 1000,
+            "heading": "W",
+            "label": "West",
+            "open": true
+          },
+          {
+            "id": "H",
+            "lengthMm": 2400,
+            "heading": "N",
+            "label": "North · door"
+          }
+        ],
+        "ceilingHeightMm": 2850,
+        "features": [
+          {
+            "kind": "window",
+            "id": "f-window",
+            "wallId": "A",
+            "offsetMm": 1300,
+            "widthMm": 900,
+            "sillMm": 1050,
+            "topMm": 2100
+          },
+          {
+            "kind": "plumbing",
+            "id": "f-plumbing",
+            "wallId": "A",
+            "offsetMm": 1750
+          },
+          {
+            "kind": "door",
+            "id": "f-door",
+            "wallId": "H",
+            "offsetMm": 400,
+            "widthMm": 800,
+            "heightMm": 2100
+          },
+          {
+            "kind": "column",
+            "id": "f-column",
+            "x": 0,
+            "y": 0,
+            "widthMm": 300,
+            "depthMm": 300
+          },
+          {
+            "kind": "beam",
+            "id": "f-beam",
+            "wallId": "B",
+            "bottomMm": 2400,
+            "depthMm": 200
+          },
+          {
+            "kind": "ductBox",
+            "id": "f-duct",
+            "label": "D–F duct box",
+            "fromWallId": "D",
+            "toWallId": "F"
+          }
+        ]
+      },
+      "modules": [
+        {
+          "moduleCode": "B600",
+          "wallId": "A",
+          "layer": "base",
+          "offsetMm": 300,
+          "widthMm": 600,
+          "carcassId": "bwp",
+          "finishId": "matte-sage",
+          "shutterTypeId": "standard",
+          "hardware": [],
+          "isCustomSize": false,
+          "id": "B600-1"
+        }
+      ],
+      "appliances": [],
+      "discountPct": 0,
+      "status": "draft"
+    },
+    "settings": {
+      "role": "salesperson",
+      "approvalMode": "always",
+      "nextQuoteSeq": 147,
+      "performanceMode": false,
+      "performanceAutoSwitched": false
+    }
+  },
+  "version": 2
+}

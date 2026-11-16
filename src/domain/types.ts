@@ -20,6 +20,12 @@ export interface Wall {
    * the walls after it don't move. Nothing stands on it; the room is open until a wall is drawn in.
    */
   open?: true;
+  /**
+   * Only on an open segment that a wall has been drawn into from one of its ends: the gap left, from
+   * its start to its end, which needn't be along one heading. It replaces length and heading for
+   * the room's shape. A gap without it is a deleted wall's own place and can be drawn back as it was.
+   */
+  gapMm?: { dx: number; dy: number };
 }
 
 export interface WindowFeature {
@@ -84,6 +90,8 @@ export type Feature =
 
 export interface Room {
   walls: Wall[];
+  /** Where the first wall starts; absent means (0, 0). Moves only when a wall is drawn back from Wall A's start. */
+  start?: Point;
   ceilingHeightMm: number;
   features: Feature[];
 }

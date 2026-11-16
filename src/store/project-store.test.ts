@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { catalogue } from "@/domain/catalogue";
-import { placementsOnWall, wallFrame } from "@/domain/geometry";
+import { isRoomClosed, placementsOnWall, wallFrame } from "@/domain/geometry";
+import { roomGaps, validateRoom } from "@/domain/room-validation";
 import { nearestFreeLabel, nextWall, wallsUnitFits } from "@/domain/turn";
 import { unitPose } from "@/domain/three-model";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
@@ -792,5 +794,79 @@ describe("inside-corner clash in the store (Feedback 2, item 4)", () => {
     store.getState().applyFix(clash.fixes[0]);
     expect(store.getState().project.modules.find((m) => m.moduleCode === "FIL")).toMatchObject({ wallId: "A", offsetMm: 3150, widthMm: 50 });
     expect(store.getState().past).toHaveLength(2);
+  });
+});
+
+describe("drawing a wall from a free end (Feedback 2, item 1)", () => {
+  const withGapC = () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("C");
+    return store;
+  };
+
+  it("draws from the picked end as one undo step; the letter skips the gap's; a join closes the room", () => {
+    const store = withGapC();
+    const steps = store.getState().past.length;
+    const res = store.getState().drawWall({ wallId: "D", side: "start" }, { direction: "E", lengthMm: 600 })!;
+    expect(res).toEqual({ id: "I", far: { wallId: "I", side: "start" }, joined: false });
+    const walls = store.getState().project.room.walls;
+    expect(walls.map((w) => w.id)).toEqual(["A", "B", "C", "I", "D", "E", "F", "G", "H"]);
+    expect(walls[3]).toEqual({ id: "I", heading: "W", lengthMm: 600, label: "West" });
+    expect(store.getState().past.length).toBe(steps + 1);
+    store.getState().undo();
+    expect(store.getState().project.room.walls.map((w) => w.id)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+
+    const join = store.getState().drawWall({ wallId: "B", side: "end" }, { direction: "W", lengthMm: 1600 })!;
+    expect(join.joined).toBe(true);
+    expect(validateRoom(store.getState().project.room).ok).toBe(true);
+  });
+
+  it("with no end picked, the default end; a closed room has no free end, so nothing is drawn", () => {
+    const store = createProjectStore(emptyMehta);
+    expect(store.getState().drawWall(null, { direction: "E", lengthMm: 600 })).toBeNull();
+    expect(store.getState().past).toHaveLength(0);
+    // An end that isn't free (B's end meets C) draws nothing either.
+    expect(store.getState().drawWall({ wallId: "B", side: "end" }, { direction: "W", lengthMm: 600 })).toBeNull();
+    const gap = withGapC();
+    expect(gap.getState().drawWall(null, { direction: "W", lengthMm: 600 })).toMatchObject({ id: "I", far: { wallId: "I", side: "end" } });
+  });
+
+  it("Close gap and Close room fill a gap drawn into with right-angle walls, in one step each", () => {
+    // Wall B deleted from the empty Mehta room; walls drawn in from both sides leave an L-shaped gap.
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("B");
+    store.getState().drawWall({ wallId: "A", side: "end" }, { direction: "S", lengthMm: 600 });
+    store.getState().drawWall({ wallId: "I", side: "end" }, { direction: "W", lengthMm: 300 });
+    store.getState().drawWall({ wallId: "C", side: "start" }, { direction: "N", lengthMm: 600 });
+    const before = store.getState().project.room;
+    expect(roomGaps(before)).toMatchObject([{ wallId: "B", drawnInto: true, summary: "1200 mm × 300 mm" }]);
+    store.getState().fillGap("B"); // only a deleted wall's own gap can be drawn back as it was
+    expect(store.getState().project.room).toBe(before);
+    const steps = store.getState().past.length;
+    store.getState().closeRoom();
+    expect(store.getState().past.length).toBe(steps + 1);
+    const walls = store.getState().project.room.walls;
+    expect(walls.map((w) => `${w.id}${w.heading}${w.lengthMm}`)).toEqual(["AE3200", "IS600", "JW300", "BS1200", "LE300", "KS600", "CW1600", "DN450", "EW600", "FS450", "GW1000", "HN2400"]);
+    expect(isRoomClosed(store.getState().project.room)).toBe(true);
+    expect(validateRoom(store.getState().project.room).ok).toBe(true);
+    store.getState().undo();
+    store.getState().closeGap("B");
+    expect(store.getState().project.room.walls).toEqual(walls);
+  });
+
+  it("a project saved before this change loads as it is, gaps and all (no migration)", async () => {
+    const raw = readFileSync(new URL("./fixtures/save-2026-11-16-before-wall-ends.json", import.meta.url), "utf8");
+    const data = new Map([[PERSIST_KEY, raw]]);
+    const store = createProjectStore(sampleDesign, () => ({ getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v), removeItem: (k) => void data.delete(k) }));
+    await store.persist.rehydrate();
+    const saved = JSON.parse(raw).state.project;
+    expect(store.getState().ui.restoreNotice).toBeNull();
+    expect(store.getState().project).toEqual(saved);
+    const room = store.getState().project.room;
+    expect(room.start).toBeUndefined();
+    expect(roomGaps(room).map((g) => g.wallId)).toEqual(["C", "G"]);
+    // Its gaps work with the new tools: free ends at both, and drawing back from D's start closes C.
+    expect(store.getState().drawWall({ wallId: "D", side: "start" }, { direction: "E", lengthMm: 1600 })).toMatchObject({ joined: true });
+    expect(roomGaps(store.getState().project.room).map((g) => g.wallId)).toEqual(["G"]);
   });
 });

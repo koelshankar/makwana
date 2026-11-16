@@ -40,7 +40,7 @@ describe("open segments", () => {
   });
 
   it("are reported by room validation with their neighbours", () => {
-    expect(roomGaps(gapC)).toEqual([{ wallId: "C", lengthMm: 1600, heading: "W", between: " between Wall B and Wall D" }]);
+    expect(roomGaps(gapC)).toEqual([{ wallId: "C", lengthMm: 1600, heading: "W", between: " between Wall B and Wall D", drawnInto: false, summary: "1600 mm" }]);
     const v = validateRoom(gapC);
     expect(v.ok).toBe(false);
     expect(v.issues).toEqual([{ wallId: "C", message: "Wall C is open: draw a wall in the 1600 mm gap between Wall B and Wall D." }]);

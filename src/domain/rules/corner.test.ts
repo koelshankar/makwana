@@ -197,3 +197,29 @@ describe("the sample design", () => {
     expect(corner(sampleDesign)).toEqual([]);
   });
 });
+
+describe("a corner made by a wall drawn from a free end (Feedback 2, item 1)", () => {
+  it("is checked like any other: Wall C deleted, a wall drawn back from D's start closes the gap, and its corner with B clashes", async () => {
+    const { drawFromEnd, freeEnds } = await import("../wall-ends");
+    const gap = { ...emptyMehta.room, walls: emptyMehta.room.walls.map((w) => (w.id === "C" ? { ...w, open: true as const } : w)) };
+    const from = freeEnds(gap).find((e) => e.wallId === "D" && e.side === "start")!; // the clicked end
+    const drawn = drawFromEnd(gap, from, { direction: "E", lengthMm: 1600 }, "I");
+    expect(drawn.joined).toBe(true);
+    // BC1000 in the B/I corner (B's far end), blind side to the corner; BD600 on the new wall I against its front.
+    const p: Project = {
+      ...emptyMehta,
+      room: drawn.room,
+      modules: [unit("bc", "BC1000", "B", 1400, 1000, "base", { blindSide: "right" }), unit("bd", "BD600", "I", 560, 600)],
+      appliances: [],
+    };
+    const [r, ...rest] = corner(p);
+    expect(rest).toEqual([]);
+    expect(r).toMatchObject({ ruleId: "corner-clash", status: "warning", placementIds: ["bc", "bd"] });
+    expect(r.message).toMatch(/at the corner of Wall B and Wall I\./);
+    expect(r.fixes.map((f) => f.label)).toEqual(["Add corner filler"]);
+    expect(corner(applyFix(p, catalogue, r.fixes[0].action))).toEqual([]);
+    // And a front hidden there is blocked.
+    const hidden = { ...p, modules: [unit("b1", "B600", "B", 1800, 600), unit("b2", "B600", "I", 560, 600)] };
+    expect(corner(hidden)).toMatchObject([{ ruleId: "corner", status: "blocked", placementIds: ["b1", "b2"] }]);
+  });
+});

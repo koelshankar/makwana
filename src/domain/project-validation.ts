@@ -53,10 +53,14 @@ function validShape(v: unknown, cat: Catalogue): v is Project {
   const room = v.room;
   if (!isObj(room) || !isInt(room.ceilingHeightMm) || room.ceilingHeightMm <= 0) return false;
   if (!Array.isArray(room.walls) || !Array.isArray(room.features)) return false;
+  // Both optional (Feedback 2, item 1): a save from before them loads as it is.
+  if (!optional(room.start, (s) => isObj(s) && isInt(s.x) && isInt(s.y))) return false;
   const wallIds = new Set<string>();
   for (const w of room.walls) {
     if (!isObj(w) || !isStr(w.id) || wallIds.has(w.id) || !isInt(w.lengthMm) || w.lengthMm <= 0 || !oneOf(w.heading, HEADINGS)) return false;
     if (!optional(w.label, isStr) || !(w.open === undefined || w.open === true)) return false;
+    // A gap's own vector: only on an open segment, whole millimetres, and not nothing.
+    if (!optional(w.gapMm, (g) => w.open === true && isObj(g) && isInt(g.dx) && isInt(g.dy) && (g.dx !== 0 || g.dy !== 0))) return false;
     wallIds.add(w.id);
   }
   if (!room.features.every((f) => validFeature(f, wallIds))) return false;

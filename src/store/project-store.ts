@@ -9,7 +9,8 @@ import { finishGroup, inheritedFinish, type FinishChoice, type FinishGroup } fro
 import { defaultBlindSide, findPlacement, isModulePlacement, placementToWorldBox, type WorldBox } from "@/domain/geometry";
 import { priceProject } from "@/domain/pricing";
 import { checkCandidate, hasBlocked, issueKey, runAllChecks, runRawChecks } from "@/domain/rules";
-import { closingHint, validateRoom } from "@/domain/room-validation";
+import { closingHint, gapClosure, validateRoom } from "@/domain/room-validation";
+import { defaultFreeEnd, drawFromEnd, freeEnds, sameEnd, type EndRef, type NewWallDraft } from "@/domain/wall-ends";
 import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markPdfDownloaded, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
 import { isUsableProject } from "@/domain/project-validation";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
@@ -25,6 +26,7 @@ import type {
   Placement,
   Project,
   ProjectStatus,
+  Room,
   SuppliedBy,
   Wall,
 } from "@/domain/types";
@@ -156,6 +158,13 @@ export interface ProjectState {
 
   setProjectInfo: (info: ProjectInfo) => void;
   addWall: (wall: NewWall) => string;
+  /**
+   * Draws a new wall from a free end (`from`, or the default end when null): one undo step. Every
+   * existing corner stays put. Returns the new wall and its far end, or null if there is no free end.
+   */
+  drawWall: (from: EndRef | null, draft: NewWallDraft) => { id: string; far: EndRef; joined: boolean } | null;
+  /** Fills a gap with the one or two right-angle walls from its start to its end, if they fit. */
+  closeGap: (id: string) => void;
   /** Appends several walls as one undoable step (used by "Close room"). */
   appendWalls: (walls: NewWall[]) => void;
   /** Replaces every wall (templates). Features and placements are kept for the rules to re-check. */
@@ -266,6 +275,26 @@ function nextWallLetter(walls: Wall[]): string {
 }
 
 export const HEADING_NAMES: Record<Heading, string> = { N: "North", E: "East", S: "South", W: "West" };
+
+/**
+ * Fills a gap, in place: a deleted wall's own gap comes back as that wall; a gap a wall was drawn
+ * into gets the one or two right-angle walls from its start to its end (`gapClosure`), with new
+ * letters, if they fit.
+ */
+function fillGapIn(room: Room, id: string) {
+  const gap = room.walls.find((w) => w.id === id);
+  if (!gap?.open) return;
+  if (!gap.gapMm) {
+    delete gap.open;
+    return;
+  }
+  const fill = gapClosure(room, id);
+  if (!fill?.valid) return;
+  const others = room.walls.filter((w) => w !== gap);
+  const added: Wall[] = [];
+  for (const w of fill.walls) added.push({ heading: w.heading, lengthMm: w.lengthMm, label: HEADING_NAMES[w.heading], id: nextWallLetter([...others, ...added]) });
+  room.walls.splice(room.walls.indexOf(gap), 1, ...added);
+}
 
 function nextFeatureId(project: Project, kind: string): string {
   const taken = new Set(project.room.features.map((f) => f.id));
@@ -525,9 +554,24 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             edit((p) => {
               for (const wall of walls) p.room.walls.push({ ...wall, id: nextWallLetter(p.room.walls) });
             }),
+          drawWall: (from, draft) => {
+            const room = get().project.room;
+            const end = from ? freeEnds(room).find((e) => sameEnd(e, from)) : defaultFreeEnd(room);
+            if (room.walls.length > 0 && !end) return null;
+            const id = nextWallLetter(room.walls);
+            const drawn = drawFromEnd(room, end ?? null, draft, id);
+            edit((p) => {
+              p.room = drawn.room;
+              const wall = p.room.walls.find((w) => w.id === id)!;
+              wall.label ??= HEADING_NAMES[wall.heading];
+            });
+            return { id, far: drawn.far, joined: drawn.joined };
+          },
+          closeGap: (id) => edit((p) => fillGapIn(p.room, id)),
           replaceWalls: (walls) =>
             edit((p) => {
               p.room.walls = walls.map((w, i) => ({ ...w, id: LETTERS[i] }));
+              delete p.room.start;
             }),
           updateWall: (id, patch) =>
             edit((p) => {
@@ -540,7 +584,10 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
               const wall = room.walls.find((w) => w.id === id);
               if (!wall || wall.open) return;
               wall.open = true;
-              if (room.walls.every((w) => w.open)) room.walls = [];
+              if (room.walls.every((w) => w.open)) {
+                room.walls = [];
+                delete room.start;
+              }
               room.features = room.features.filter((f) => !("wallId" in f) || f.wallId !== id);
               const removed = new Set(p.modules.filter((m) => m.wallId === id).map((m) => m.id));
               p.modules = p.modules.filter((m) => !removed.has(m.id));
@@ -553,15 +600,16 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           fillGap: (id) =>
             edit((p) => {
               const wall = p.room.walls.find((w) => w.id === id);
-              if (wall?.open) delete wall.open;
+              if (wall?.open && !wall.gapMm) delete wall.open;
             }),
-          closeRoom: () =>
+          closeRoom: () => {
             edit((p) => {
-              for (const w of p.room.walls) delete w.open;
+              for (const gap of p.room.walls.filter((w) => w.open).map((w) => w.id)) fillGapIn(p.room, gap);
               const hint = closingHint(p.room);
               if (!hint?.valid) return;
               for (const w of hint.walls) p.room.walls.push({ heading: w.heading, lengthMm: w.lengthMm, label: HEADING_NAMES[w.heading], id: nextWallLetter(p.room.walls) });
-            }),
+            });
+          },
           setCeiling: (mm) =>
             edit((p) => {
               p.room.ceilingHeightMm = mm;

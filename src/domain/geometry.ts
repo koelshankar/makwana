@@ -40,13 +40,26 @@ export interface WallSegment {
   open: boolean;
 }
 
+export const headingVector = (h: Heading): Point => HEADING_VECTORS[h];
+
+/** Where the first wall starts: (0, 0) unless a wall was drawn back from Wall A's start. */
+export const roomStart = (room: Room): Point => room.start ?? { x: 0, y: 0 };
+
+/** From a wall's start to its end; a gap drawn into keeps its own vector. */
+export function wallVector(wall: Wall): Point {
+  if (wall.open && wall.gapMm) return { x: wall.gapMm.dx, y: wall.gapMm.dy };
+  const d = HEADING_VECTORS[wall.heading];
+  return { x: d.x * wall.lengthMm, y: d.y * wall.lengthMm };
+}
+
 /** Corner points: vertex i is the start of wall i. Includes the final end point. */
 export function roomVertices(room: Room): Point[] {
-  const pts: Point[] = [{ x: 0, y: 0 }];
+  const start = roomStart(room);
+  const pts: Point[] = [{ x: start.x, y: start.y }];
   for (const wall of room.walls) {
     const prev = pts[pts.length - 1];
-    const d = HEADING_VECTORS[wall.heading];
-    pts.push({ x: prev.x + d.x * wall.lengthMm, y: prev.y + d.y * wall.lengthMm });
+    const v = wallVector(wall);
+    pts.push({ x: prev.x + v.x, y: prev.y + v.y });
   }
   return pts;
 }
@@ -71,7 +84,8 @@ export function signedArea(room: Room): number {
 export function isChainClosed(room: Room): boolean {
   if (room.walls.length < 4) return false;
   const end = roomVertices(room)[room.walls.length];
-  return end.x === 0 && end.y === 0;
+  const start = roomStart(room);
+  return end.x === start.x && end.y === start.y;
 }
 
 /** Closed and with no open segment: ready for design. */

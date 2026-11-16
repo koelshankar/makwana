@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isRoomClosed, roomOutline, wallFrames, wallToWorld, worldToWall, type WallFrame } from "@/domain/geometry";
-import { closingHint, rectInsidePolygon, validateRoom } from "@/domain/room-validation";
+import { headingVector, isRoomClosed, roomOutline, wallFrames, wallToWorld, worldToWall, type WallFrame } from "@/domain/geometry";
+import { closingHint, gapClosure, rectInsidePolygon, validateRoom } from "@/domain/room-validation";
+import { freeEnds, sameEnd, startEnd } from "@/domain/wall-ends";
 import type { Feature, Point } from "@/domain/types";
 import { WALL_THICKNESS_MM } from "@/domain/zones";
 import { FULL_VIEW_CLASS, useFullView } from "@/components/shell/full-view";
@@ -65,7 +66,11 @@ export function RoomPlan() {
   const openingKind = useSetupUi((s) => s.openingKind);
   const selectedWallId = useSetupUi((s) => s.selectedWallId);
   const selectedFeatureId = useSetupUi((s) => s.selectedFeatureId);
-  const { selectWall, selectFeature, setTool, editFeature } = useSetupUi.getState();
+  const addingWall = useSetupUi((s) => s.addingWall);
+  const wallStart = useSetupUi((s) => s.wallStart);
+  const wallDraft = useSetupUi((s) => s.wallDraft);
+  const { selectWall, selectFeature, setTool, editFeature, setWallStart } = useSetupUi.getState();
+  const [hoverEnd, setHoverEnd] = useState<string | null>(null);
 
   const fullView = useFullView();
   const walls = room.walls;
@@ -98,10 +103,11 @@ export function RoomPlan() {
       setPopover(null);
       setGhost(null);
       setTool("select");
+      setWallStart(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setTool]);
+  }, [setTool, setWallStart]);
 
   const finishTool = () => {
     setTool("select");
@@ -232,6 +238,9 @@ export function RoomPlan() {
   const frameOf = (id: string) => frames.find((f) => f.wallId === id);
   const n = walls.length;
   const roomCentre = useMemo(() => labelPoint(outline.inner), [outline.inner]);
+  // While adding walls: every free end is a handle; the one the next wall starts from is filled.
+  const ends = useMemo(() => (addingWall ? freeEnds(room) : []), [addingWall, room]);
+  const from = useMemo(() => (addingWall ? startEnd(room, wallStart) : null), [addingWall, room, wallStart]);
 
   const cursor = drag ? "grabbing" : tool === "select" || tool === "drawWall" ? "grab" : "crosshair";
 
@@ -310,27 +319,86 @@ export function RoomPlan() {
                   );
                 });
               })()}
-              {[outline.inner[0], outline.inner[outline.inner.length - 1]].map((p, i) => (
-                <circle key={i} cx={p.x} cy={p.y} r={font(5)} fill="white" stroke={C.warn} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-              ))}
+              {!addingWall &&
+                [outline.inner[0], outline.inner[outline.inner.length - 1]].map((p, i) => (
+                  <circle key={i} cx={p.x} cy={p.y} r={font(5)} fill="white" stroke={C.warn} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                ))}
             </g>
           )}
 
-          {/* The selected open segment: draw its wall back in */}
+          {/* The next wall's preview, from its start end, at the typed length */}
+          {from &&
+            wallDraft.direction &&
+            (() => {
+              const d = headingVector(wallDraft.direction);
+              const to = { x: from.point.x + d.x * wallDraft.lengthMm, y: from.point.y + d.y * wallDraft.lengthMm };
+              const mid = { x: (from.point.x + to.x) / 2, y: (from.point.y + to.y) / 2 };
+              return (
+                <g pointerEvents="none" data-wall-preview>
+                  <line x1={from.point.x} y1={from.point.y} x2={to.x} y2={to.y} stroke={C.accent} strokeWidth={2} strokeDasharray="8 6" vectorEffect="non-scaling-stroke" />
+                  <text x={mid.x + font(8)} y={mid.y - font(8)} fontSize={font(11)} className="num" fill={C.accentInk}>
+                    {mm(wallDraft.lengthMm)}
+                  </text>
+                </g>
+              );
+            })()}
+
+          {/* Free ends: click one to start the next wall there; click it again for the default */}
+          {ends.map((e) => {
+            const key = `${e.wallId}:${e.side}`;
+            const current = sameEnd(e, from);
+            const big = hoverEnd === key || current;
+            const pick = () => setWallStart(sameEnd(e, wallStart) ? null : { wallId: e.wallId, side: e.side });
+            return (
+              <g
+                key={key}
+                role="button"
+                tabIndex={0}
+                aria-label={`Start from the ${e.side} of Wall ${e.wallId}`}
+                aria-pressed={current}
+                data-free-end={key}
+                data-current={current || undefined}
+                className="cursor-pointer"
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onPointerEnter={() => setHoverEnd(key)}
+                onPointerLeave={() => setHoverEnd(null)}
+                onClick={pick}
+                onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && pick()}
+              >
+                {/* A 12 px snap radius around a 10 px handle */}
+                <circle cx={e.point.x} cy={e.point.y} r={font(12)} fill="transparent" />
+                <circle
+                  cx={e.point.x}
+                  cy={e.point.y}
+                  r={font(big ? 7 : 5)}
+                  fill={current ? C.accent : "white"}
+                  stroke={C.accent}
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <title>{`Start from the ${e.side} of Wall ${e.wallId}`}</title>
+              </g>
+            );
+          })}
+
+          {/* The selected open segment: draw its wall back in, or close what is left of it */}
           {(() => {
             const i = walls.findIndex((w) => w.id === selectedWallId && w.open);
             if (i < 0) return null;
+            if (walls[i].gapMm && !gapClosure(room, walls[i].id)?.valid) return null;
             const a = outline.inner[i];
             const b = outline.inner[(i + 1) % outline.inner.length];
             const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
             const toward = { x: roomCentre.x - mid.x, y: roomCentre.y - mid.y };
             const horizontal = a.y === b.y;
             const at = horizontal ? { x: mid.x, y: mid.y + Math.sign(toward.y) * font(26) } : { x: mid.x + Math.sign(toward.x) * font(62), y: mid.y };
-            const text = `Draw Wall ${walls[i].id}`;
+            const drawnInto = !!walls[i].gapMm;
+            const text = drawnInto ? "Close gap" : `Draw Wall ${walls[i].id}`;
             const w = font(text.length * 6.8 + 22);
             const fill = () => {
-              projectStore.getState().fillGap(walls[i].id);
-              notifyRecheck([walls[i].id]);
+              if (drawnInto) projectStore.getState().closeGap(walls[i].id);
+              else projectStore.getState().fillGap(walls[i].id);
+              notifyRecheck(drawnInto ? undefined : [walls[i].id]);
             };
             return (
               <g
