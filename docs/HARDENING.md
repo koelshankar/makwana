@@ -196,6 +196,8 @@ Branch: `feedback-1` (from `main` at `7ebdeee`, after `hardening-1` was fast-for
 
 ## Item 4: Wall labels
 
+**Removed in Feedback 2, item 2.** The text below is kept as a record of what was built.
+
 - `wallLabelSpots` (`src/domain/three-model.ts`) places each label at the middle of its wall's base, 650 mm into the room (just past the 600 mm countertop), or halfway across a shallower room (wall F: 500 mm).
 - `WallLabels` (`src/components/three/wall-labels.tsx`) draws flat badges from a canvas texture, so there's no web font to fetch offline. Each badge turns about the vertical to read upright from the camera.
 - `KitchenScene` takes a `wallLabels` prop, which is on only in the Design panel. Show customer, the Quote view and the print page don't show labels, so neither does the PDF picture.
@@ -223,3 +225,22 @@ The main script needed no step changes for items 1, 2, 4 and 5. Item 3 changed t
 ## Auto vs. Full height
 
 Both build the walls at full height. Full height fades the walls in front of the camera to 15%; Auto hides them completely. Both use the same rule.
+
+# Feedback 2
+
+Branch: `feedback-1` (continued). One commit per item. Not merged.
+
+| Item | Status | Commit |
+|---|---|---|
+| 2 Remove the 3D wall labels | Done | see `git log` |
+| 3 Move button replaces the round turn button | Done | see `git log` |
+| 1 Start a new wall from the end of any wall | Plan only: `docs/PLAN-wall-start.md` | — |
+| 4 Inside-corner door clash rule | Plan only: `docs/PLAN-wall-start.md` | — |
+
+## Item 2: Remove the 3D wall labels
+
+- **Decision.** Deleted, not hidden: `src/components/three/wall-labels.tsx`, `wallLabelSpots` and `WALL_LABEL_DEPTH_MM` (`src/domain/three-model.ts`), `KitchenScene`'s `wallLabels` prop (and its `Invalidate` dependency), and the Design panel's `wallLabels={!customer}`. There was no toggle or stored setting, so nothing in the save or the settings changes.
+- **Reason.** The owner asked for them gone. Feedback 1, item 4 kept them out of Show customer, the Quote view and the PDF already; with the code gone no 3D view can draw them, so those snapshots can't either.
+- **Kept.** The 2D labels: the Room Setup plan's wall letters and lengths, the Design plan, elevation titles and wall tabs. The 3D unit code sprites (`unit-mesh.tsx`) are unit labels, not wall labels, and stay.
+- **Tests.** Removed the `wallLabelSpots` unit tests and the Feedback 1, item 4 e2e test. The full-screen e2e no longer expects `data-wall-labels` on the 3D canvas. Nothing else referred to them (`grep -ri "wall.\?label" src e2e` finds only the Room Setup list's own wall label field).
+- **Checks.** `npm test` 216/216 (219 less the three label tests), `tsc` and `lint` clean, build passes (`/design` 343 kB, `/quote` 311 kB, `/setup` 308 kB, shared 235 kB). `npm run e2e`: 62 passed, 2 skipped (automatic performance mode), across both sizes: 64 less the label test at each size.

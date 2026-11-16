@@ -75,7 +75,7 @@ export function ThreePanel() {
   const blocked = useBlockedIds();
   const outcome = useInteraction((s) => s.outcome);
   const api = useRef<SceneApi>(null);
-  // Full screen keeps the salesperson's view (preset, selection, wall mode, labels); Show customer is the customer's.
+  // Full screen keeps the salesperson's view (preset, selection, wall mode); Show customer is the customer's.
   const fullView = useFullView();
   /** The preset the view is on; cleared by a quarter turn. */
   const [preset, setPreset] = useState<ViewPreset | null>("3d");
@@ -178,7 +178,6 @@ export function ThreePanel() {
             onSelect={onSelect}
             performance={performance}
             onSlowFrames={performance || autoSwitched ? undefined : onSlowFrames}
-            wallLabels={!customer}
           />
 
           {!customer && (notPlaced || selected) && (

@@ -117,35 +117,6 @@ test.describe("Feedback 1 · item 3: Auto wall mode", () => {
   });
 });
 
-test.describe("Feedback 1 · item 4: wall labels on the Design 3D floor", () => {
-  test("Design shows A to H; Show customer, the Quote view and the PDF picture don't", async ({ page, context }) => {
-    await context.addInitScript(() => (window.print = () => {}));
-    await open(page, "/setup");
-    await resetDemo(page);
-    await loadSample(page);
-    await stepper(page, "Design").click();
-    const panel = page.locator("[data-three-panel]");
-    const canvas = panel.locator("canvas[data-scene-ready]");
-    await expect(canvas).toHaveAttribute("data-wall-labels", "A,B,C,D,E,F,G,H");
-    await canvas.screenshot({ path: test.info().outputPath("design-labels.png") });
-
-    await page.getByRole("button", { name: "Show customer" }).click();
-    await expect(panel).toHaveAttribute("data-customer", "true");
-    await expect(canvas).not.toHaveAttribute("data-wall-labels", /.*/);
-    await panel.getByRole("button", { name: "Exit" }).click();
-    await expect(canvas).toHaveAttribute("data-wall-labels", "A,B,C,D,E,F,G,H");
-
-    // The Quote view, which the PDF picture is taken from, has none.
-    await stepper(page, "Quote").click();
-    const quote = page.locator("[data-quote-3d] canvas[data-scene-ready]");
-    await expect(quote).toHaveAttribute("data-wall-mode", "auto");
-    await expect(quote).not.toHaveAttribute("data-wall-labels", /.*/);
-    await page.locator("[data-download]").click();
-    await expect(page.locator("[data-print-ready]")).toBeVisible();
-    await expect(page.locator("[data-print-3d]")).toHaveAttribute("src", /^data:image\/png;base64,/);
-  });
-});
-
 test.describe("Feedback 1 · item 5: full screen opens the active view", () => {
   // Playwright's Chrome refuses the browser's full screen (as embedded browsers do), which is what
   // made the old button do nothing (and throw "not granted"). The view must fill the window anyway.
@@ -196,7 +167,7 @@ test.describe("Feedback 1 · item 5: full screen opens the active view", () => {
     await page.keyboard.press("Escape");
     await expect(views).not.toHaveAttribute("data-full-view", /.*/);
 
-    // The 3D panel opens with its current preset, salesperson controls and wall letters kept.
+    // The 3D panel opens with its current preset, and salesperson controls kept.
     const panel = page.locator("[data-three-panel]");
     const presets = panel.getByRole("radiogroup", { name: "View" });
     await presets.getByRole("radio", { name: "Top" }).click();
@@ -204,7 +175,6 @@ test.describe("Feedback 1 · item 5: full screen opens the active view", () => {
     await expect(panel).toHaveAttribute("data-full-view", "true");
     await fillsWindow(page, panel);
     await expect(presets.getByRole("radio", { name: "Top" })).toHaveAttribute("aria-checked", "true");
-    await expect(panel.locator("canvas[data-scene-ready]")).toHaveAttribute("data-wall-labels", "A,B,C,D,E,F,G,H");
     await expect(panel).not.toHaveAttribute("data-customer", /.*/);
     await presets.getByRole("radio", { name: "3D" }).click();
     await panel.getByRole("button", { name: "Exit full screen" }).click();

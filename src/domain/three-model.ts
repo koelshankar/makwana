@@ -614,33 +614,6 @@ export function unitPose(frame: WallFrame, offsetMm: number): UnitPose {
 }
 
 // ---------------------------------------------------------------------------
-// Wall labels
-
-/** How far into the room a wall's floor label's centre sits: just clear of the countertop (600 mm). */
-export const WALL_LABEL_DEPTH_MM = 650;
-
-export interface WallLabelSpot {
-  wallId: string;
-  /** Centre of the label on the floor, world mm. */
-  at: Point;
-  /** The wall's inward normal. */
-  normal: Point;
-}
-
-/**
- * A floor label for each wall, at the middle of its base and in front of the base run. Where the
- * room is shallower than twice that (a short room, a notch), it sits halfway across instead.
- */
-export function wallLabelSpots(room: Room): WallLabelSpot[] {
-  const floor = roomOutline(room, 0).inner;
-  return wallFrames(room).map((f) => {
-    const mid = wallToWorld(f, f.lengthMm / 2);
-    const across = Math.max(0, ...floor.map((p) => (p.x - mid.x) * f.n.x + (p.y - mid.y) * f.n.y));
-    return { wallId: f.wallId, at: wallToWorld(f, f.lengthMm / 2, Math.min(WALL_LABEL_DEPTH_MM, across / 2)), normal: f.n };
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Countertop
 
 export interface CountertopSlabShape {
