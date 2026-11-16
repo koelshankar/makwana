@@ -135,11 +135,55 @@ Branch: `feedback-1` (from `main` at `7ebdeee`, after `hardening-1` was fast-for
 
 | Item | Status | Commit |
 |---|---|---|
-| 1 Deleting a wall leaves a gap | Plan sent, waiting for approval | — |
-| 2 Choose which wall a unit faces | Plan sent, waiting for approval | — |
+| 1 Deleting a wall leaves a gap | Done | `b95cef1` |
+| 2 Choose which wall a unit faces | Done | `ce30c9c` |
 | 3 3D "Auto" wall mode | Done | `ccb1449` |
 | 4 Wall labels on the Design 3D floor | Done | `b01dcae` |
 | 5 Full screen opens the active view | Done | `7afe5dd` |
+
+## Item 1: Deleting a wall leaves a gap
+
+- **Cause.** Walls are a chain of heading plus length from Wall A. Removing one from the list moved every wall after it.
+- **Model.** `removeWall` marks the wall `open: true`. The open segment keeps its letter, length and heading, so every corner stays where it was. Its features and units are still removed, as one undoable step. When no standing wall is left, the room is cleared.
+- **Geometry.**
+  - `wallSegments` carries `open`. `wallFrames`, `findWall` and `solidWalls` skip open segments; frames keep their chain `index`.
+  - `isChainClosed` is the old closed test. `isRoomClosed` also requires no open segment.
+  - The outline gives an open segment no thickness. The 3D wall extents and the corner rule treat it as neither a wall nor a corner.
+- **Validation.** Each gap is reported as "Wall C is open: draw a wall in the 1600 mm gap between Wall B and Wall D." `closingHint` still covers an open end. Design stays locked until the room closes.
+- **Room Setup.**
+  - The plan draws the gap dashed, labelled "C · 1600 · open". Clicking it selects it and shows a "+ Draw Wall C" button.
+  - The walls list shows the row as Open, with a Draw wall button.
+  - The footer reads "Room open · 7 walls · 1 gap".
+  - "Close room" (`closeRoom`) fills every gap and adds the closing walls for an open end, as one undo step.
+  - Templates replace gaps. A new wall skips letters that gaps still hold.
+- **Elsewhere.** Wall tabs, wall pickers and the quote's wall count list standing walls only. A save with `open` passes validation.
+- **Tests.**
+  - Unit (`src/domain/open-segments.test.ts`, store): corners unchanged; frames, `findWall` and the standing-wall count; open vs. chain closed; gap messages, including Wall A's wrap and two gaps side by side; outline; no 3D wall; save validation; an open end plus a gap. Store: letter, length and heading kept; units and features removed; draw back with undo; Close room fills two gaps and an open end in one step; letters; last wall; template.
+  - e2e: every other wall's plan polygon is unchanged; the gap is dashed with its label; footer, message and Start Designing disabled; the plan's Draw button restores the exact plan; so do the list button and Close room (two gaps); the "Open by 62 mm" path still works; a template replaces a gap; a wall with units asks to confirm, its units go, the rest stay, and Undo restores it.
+
+## Item 2: Choose which wall a unit faces
+
+**How the wall was chosen before.**
+- Drops land only on the elevation, on the wall it shows: the selected wall tab, or the last selected unit's wall.
+- On the Plan tab, a drag switches to an elevation (the active wall, or Wall A).
+- The 3D view is display only, so a drop there does nothing.
+- After placing, dragging and arrow keys kept the wall. Only the inspector's Wall picker (units only; it searched for the nearest free spot and showed a toast if there was none) or a Blocked-card "Move to Wall X" fix could change it.
+
+**Now.** A unit stands with its back to a wall, so turning it means moving it to another wall. The model stays wall, layer and offset. The 3D view turns units about the vertical only (`unitPose`: position and yaw).
+- **Domain (`src/domain/turn.ts`, pure).**
+  - Picks the next or previous wall in A→Z order, wrapping round, skipping open segments and walls shorter than the unit.
+  - The position is the unit's footprint centre projected onto the new wall, kept within it. So a unit at a corner stays at that corner.
+  - A blind corner unit's blind side faces the new wall's nearer end. A fitted appliance turns its host.
+- **Store.** `turnPlacement(id, 1 | -1 | wallId)` runs the normal checks and commits as one undoable step. When blocked, nothing moves, and every blocked result leads with "Move to nearest free spot on Wall X" (`nearestFreeOffset`, which replaces `nearestValidOffset`). When no other wall fits, a toast says so and nothing moves.
+- **While dragging** (from the catalogue, or a unit along the elevation): R / Shift+R switch the target wall. The elevation and the 3D ghost show the unit there before the drop, with a "Facing from Wall B · R next wall · ⇧R previous" hint. The elevation is no longer remounted per wall, so a unit drag carries on; panning is kept per wall.
+- **After placing:** R / Shift+R, a round turn button on the selected unit in the elevation, and the inspector's Wall picker plus turn button (units and free appliances; only the walls it fits on are offered) all use `turnSelected`.
+  - Placed: the elevation follows the unit, and any warnings show.
+  - Blocked: the Blocked card, over the target wall.
+  - No wall fits: a toast.
+- `movePlacement` now re-defaults a blind corner unit's blind side when it changes wall.
+- **Tests.**
+  - Unit (`src/domain/turn.test.ts`, store): next/previous order with wrap; skipping the 450 and 600 mm duct walls and open segments; none fits; the corner projection (A 2600 → B 0, A 2600 → H 1800); unchanged fields; blind side; fitted vs. free subject; the first fix "Move to nearest free spot on Wall H" (H 1500) clears the block. Store: commit, undo/redo, Shift+R back, blocked with nothing moved and the fix placing it, the picker and its refusals, nothing fits, a sink turns its host, yaw-only quarter turn.
+  - e2e: R, R, Shift+R mid-drag switch the elevation and hint, and the drop lands on B; after placing, R moves A 2600 to B 0 with ⌘Z / ⇧⌘Z, Shift+R into the column shows the Blocked card with the new first fix (H 1500), and the turn button blocks at A and fixes to A 300; the picker offers only walls it fits on, then turns; a 3200 mm unit gets the "No other wall fits" toast and stays.
 
 ## Item 3: Auto wall mode
 
@@ -170,6 +214,12 @@ Branch: `feedback-1` (from `main` at `7ebdeee`, after `hardening-1` was fast-for
 - **Tests.** Unit: a refusal or a missing API resolves false; exit only when in full screen, and failures are swallowed. e2e: Room Setup fills the window, the menu still opens, Esc closes the menu first, then the view, and so does the button; Design plan then Wall B inside full screen; 3D keeps Top and its labels, and isn't the customer view. The old button failed the console guard here with "not granted".
 - **Not covered by automation.** Real browser full screen, because Playwright's Chrome refuses it. Check it by hand in Chrome.
 
-## Checks (after items 3–5)
+## Checks (all five items)
 
-`npm test` 190/190, `npx tsc --noEmit` and `npm run lint` clean, `npm run build` passes (`/design` 339 kB). `npx playwright test`: 52 passed, 2 skipped (the automatic performance mode half, as before), across both sizes. The count includes the console guard's expected-failure self-check.
+`npm test` 219/219, `npx tsc --noEmit` and `npm run lint` clean, `npm run build` passes (`/design` 343 kB, `/setup` 308 kB, `/quote` 311 kB, shared 235 kB). `npx playwright test`: 64 passed, 2 skipped (the automatic performance mode half, as before), across both sizes. The count includes the console guard's expected-failure self-check.
+
+The main script needed no step changes for items 1, 2, 4 and 5. Item 3 changed two of its checks (Auto in Show customer and on the Quote screen).
+
+## Auto vs. Full height
+
+Both build the walls at full height. Full height fades the walls in front of the camera to 15%; Auto hides them completely. Both use the same rule.
