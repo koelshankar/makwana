@@ -314,10 +314,12 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
       expect([box.x, box.y, box.width, box.height]).toEqual([0, 0, vp.width, vp.height]);
       await expect(panel.locator("h2")).toHaveText("Mehta Residence");
       await expect(panel.getByRole("radiogroup", { name: "Wall height" })).toBeVisible();
+      // Feedback 1: the customer sees Auto (the walls in front hidden) by default.
+      await expect(panel.getByRole("radiogroup", { name: "Wall height" }).getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
       await expect(panel.getByRole("radiogroup", { name: "View" })).toBeVisible();
       // Only view controls: wall height, presets, rotate, zoom, reset, Exit.
       const buttons = await panel.locator("button:visible").evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim()));
-      expect(buttons.filter((b) => !/^(Cut at 450|Full height|3D|Top|Facing [A-H]|Rotate left|Rotate right|Zoom out|Zoom in|Reset view|Exit)$/.test(b ?? "")), "no controls beyond the view").toEqual([]);
+      expect(buttons.filter((b) => !/^(Auto|Cut at 450|Full height|3D|Top|Facing [A-H]|Rotate left|Rotate right|Zoom out|Zoom in|Reset view|Exit)$/.test(b ?? "")), "no controls beyond the view").toEqual([]);
     };
 
     await enter();
@@ -343,6 +345,10 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     await expect(page.locator("[data-status-pill]")).toHaveAttribute("data-status-pill", "draft");
     await expect(page.locator("[data-status-pill]")).toHaveText("Draft");
     await expect(page.locator("main")).not.toContainText("MMK-");
+    // Feedback 1: the Quote 3D view (and so the PDF picture) is in Auto, with Cut and Full on offer.
+    const quoteWalls = page.locator("[data-quote-3d]").locator("..").getByRole("radiogroup", { name: "Wall height" });
+    await expect(quoteWalls.getByRole("radio")).toHaveText(["Auto", "Cut at 450", "Full height"]);
+    await expect(quoteWalls.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
     await shot("quote-draft");
 
     const grand = page.locator("[data-quote-grand-total]");

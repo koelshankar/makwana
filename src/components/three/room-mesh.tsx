@@ -1,18 +1,18 @@
 "use client";
 
 // Floor, walls (split around openings), window frames and panes, column, beam and duct box.
-// In Full height the walls between the camera and the room fade to 15%.
+// In Full height the walls between the camera and the room fade to 15%; in Auto they are hidden
+// (the units on them stay). Decided before every render from the camera doing the rendering, so
+// orbiting, presets and the PDF snapshot all see the right walls.
 
-import { useFrame } from "@react-three/fiber";
-import { memo, useEffect, useMemo } from "react";
+import { useThree } from "@react-three/fiber";
+import { memo, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { roomModel, type RoomPart, type WallHeightMode } from "@/domain/three-model";
+import { roomModel, wallsInFront, type RoomPart, type WallHeightMode } from "@/domain/three-model";
 import type { Room } from "@/domain/types";
 import { edgeMaterial, extrudedGeometry, fadingEdgeMaterial, fadingMaterial, materialFor, roomPartsGeometry } from "./materials";
 
 const FADED = 0.15;
-/** How directly the camera must look through a wall (cosine) before it fades. */
-const FADE_COS = 0.25;
 
 const noRaycast = () => null;
 
@@ -39,10 +39,11 @@ export const RoomMesh = memo(function RoomMesh({ room, mode }: { room: Room; mod
     return [...byKey].map(([key, parts]): Group => {
       const wallId = parts[0].wallId ?? null;
       const { geometry, edges } = roomPartsGeometry(parts);
+      // Full height fades by opacity (per-wall materials); Auto hides the group, so shares materials.
       const fades = wallId !== null && mode === "full";
       return {
         key,
-        wallId: fades ? wallId : null,
+        wallId: mode === "cut" ? null : wallId,
         material: fades ? fadingMaterial(parts[0].material, wallId) : materialFor(parts[0].material),
         edges: parts[0].material === "pane" ? null : fades ? fadingEdgeMaterial(wallId) : edgeMaterial,
         geometry,
@@ -62,33 +63,66 @@ export const RoomMesh = memo(function RoomMesh({ room, mode }: { room: Room; mod
     [floor, groups],
   );
 
-  // Fade the walls the camera looks through. Runs only on rendered frames (frameloop="demand").
-  const dir = useMemo(() => new THREE.Vector3(), []);
-  useFrame(({ camera }) => {
-    if (mode !== "full") return;
-    camera.getWorldDirection(dir);
-    const len = Math.hypot(dir.x, dir.z) || 1;
-    for (const g of groups) {
-      if (!g.wallId) continue;
-      const n = model.normals[g.wallId];
-      // Looking along the wall's inward normal means the wall is between camera and room.
-      const through = (dir.x * n.x + dir.z * n.y) / len > FADE_COS;
-      const m = g.material as THREE.MeshStandardMaterial;
-      const base = (m.userData.baseOpacity as number) ?? 1;
-      const opacity = through ? Math.min(base, FADED) : base;
-      if (m.opacity !== opacity) {
-        m.opacity = opacity;
-        m.depthWrite = opacity >= 1;
-      }
-      if (g.edges) g.edges.opacity = (g.edges.userData.baseOpacity as number) * (through ? FADED : 1);
+  // Fade or hide the walls the camera looks through, before each render (scene.onBeforeRender runs
+  // before three culls and sorts, for every gl.render: frames, the contact shadows and snapshots).
+  const scene = useThree((s) => s.scene);
+  const get = useThree((s) => s.get);
+  const objects = useRef(new Map<string, THREE.Group>());
+  useEffect(() => {
+    const canvas = get().gl.domElement;
+    const shown = objects.current;
+    canvas.dataset.wallMode = mode;
+    if (mode === "cut") {
+      delete canvas.dataset.hiddenWalls;
+      return;
     }
-  });
+    const dir = new THREE.Vector3();
+    const prev = scene.onBeforeRender;
+    const apply = (camera: THREE.Camera) => {
+      camera.getWorldDirection(dir);
+      const through = new Set(wallsInFront(model, { x: dir.x, y: dir.z }));
+      for (const g of groups) {
+        if (!g.wallId) continue;
+        const inFront = through.has(g.wallId);
+        if (mode === "auto") {
+          const obj = shown.get(g.key);
+          if (obj) obj.visible = !inFront;
+          continue;
+        }
+        const m = g.material as THREE.MeshStandardMaterial;
+        const base = (m.userData.baseOpacity as number) ?? 1;
+        const opacity = inFront ? Math.min(base, FADED) : base;
+        if (m.opacity !== opacity) {
+          m.opacity = opacity;
+          m.depthWrite = opacity >= 1;
+        }
+        if (g.edges) g.edges.opacity = (g.edges.userData.baseOpacity as number) * (inFront ? FADED : 1);
+      }
+      // For end-to-end tests: the walls hidden or faded for the view camera.
+      if (camera === get().camera) canvas.dataset.hiddenWalls = [...through].sort().join(",");
+    };
+    scene.onBeforeRender = function (this: THREE.Scene, ...args: Parameters<THREE.Scene["onBeforeRender"]>) {
+      prev.apply(this, args);
+      apply(args[2]);
+    };
+    get().invalidate();
+    return () => {
+      scene.onBeforeRender = prev;
+      for (const obj of shown.values()) obj.visible = true;
+    };
+  }, [scene, get, groups, model, mode]);
 
   return (
     <>
       <mesh geometry={floor} material={materialFor("floor")} raycast={noRaycast} />
       {groups.map((g) => (
-        <group key={g.key}>
+        <group
+          key={g.key}
+          ref={(obj) => {
+            if (obj) objects.current.set(g.key, obj);
+            else objects.current.delete(g.key);
+          }}
+        >
           <mesh geometry={g.geometry} material={g.material} raycast={noRaycast} />
           {g.edges && <lineSegments geometry={g.edgeGeometry} material={g.edges} raycast={noRaycast} />}
         </group>

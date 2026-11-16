@@ -39,6 +39,8 @@ const PRINT_CSS = `
 /** Renders the room offscreen at a fixed size and hands back one iso snapshot ("" if 3D is unavailable). */
 function OffscreenSnapshot({ onShot }: { onShot: (url: string) => void }) {
   const project = useProjectStore((s) => s.project);
+  // The same walls as the Quote screen's 3D view (Auto unless the salesperson changed it there).
+  const wallHeight = useProjectStore((s) => s.ui.presentWallHeight);
   const api = useRef<SceneApi>(null);
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +73,7 @@ function OffscreenSnapshot({ onShot }: { onShot: (url: string) => void }) {
   return (
     <div aria-hidden className="no-print fixed top-0 -left-[5000px] h-[640px] w-[960px]">
       <SceneBoundary onUnavailable={() => onShot("")} fallback={null}>
-        <KitchenScene ref={api} project={project} selectedId={null} blockedIds={EMPTY} wallHeight="cut" interactive={false} />
+        <KitchenScene ref={api} project={project} selectedId={null} blockedIds={EMPTY} wallHeight={wallHeight} interactive={false} />
       </SceneBoundary>
     </div>
   );

@@ -61,8 +61,13 @@ export interface UiState {
   elevationZoom: number;
   /** Last finish/shutter chosen per group; new units inherit it. */
   recentFinish: Partial<Record<FinishGroup, FinishChoice>>;
-  /** 3D walls: cut low so the kitchen shows from any angle, or full height. */
+  /** Design 3D walls: cut low so the kitchen shows from any angle, full height, or auto. */
   wallHeight: WallHeightMode;
+  /**
+   * 3D walls where the customer looks: Show customer, the Quote screen and the PDF picture taken
+   * from it. Auto by default: the walls between the camera and the room are hidden.
+   */
+  presentWallHeight: WallHeightMode;
   /** The 3D view fills the screen for the customer, with only view controls. */
   customerView: boolean;
   /** The Quote screen's 3D picture at the iso preset, handed to the print page. Never persisted. */
@@ -111,6 +116,7 @@ export const initialUi: UiState = {
   elevationZoom: 1,
   recentFinish: {},
   wallHeight: "cut",
+  presentWallHeight: "auto",
   customerView: false,
   snapshot: null,
   returnedToDraft: null,
@@ -203,6 +209,7 @@ export interface ProjectState {
   setDesignTab: (tab: DesignTab) => void;
   setElevationZoom: (zoom: number) => void;
   setWallHeight: (mode: WallHeightMode) => void;
+  setPresentWallHeight: (mode: WallHeightMode) => void;
   setCustomerView: (on: boolean) => void;
   /** Finish and shutter for a new unit of this module, inherited from its group. */
   finishFor: (moduleCode: string) => FinishChoice;
@@ -715,6 +722,10 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           setWallHeight: (mode) =>
             set((s) => {
               s.ui.wallHeight = mode;
+            }),
+          setPresentWallHeight: (mode) =>
+            set((s) => {
+              s.ui.presentWallHeight = mode;
             }),
           setCustomerView: (on) =>
             set((s) => {

@@ -5,8 +5,9 @@ import { type RefObject } from "react";
 import { DesignPlan } from "@/components/design/design-plan";
 import type { SceneApi } from "@/components/three/kitchen-scene";
 import { SceneBoundary } from "@/components/three/scene-boundary";
+import { WallHeightToggle } from "@/components/three/wall-height-toggle";
 import type { QuoteModel } from "@/domain/quote";
-import { useProjectStore } from "@/store/project-store";
+import { projectStore, useProjectStore } from "@/store/project-store";
 import { ChecksSummary, Swatch } from "./quote-parts";
 
 const KitchenScene = dynamic(() => import("@/components/three/kitchen-scene").then((m) => m.KitchenScene), {
@@ -29,6 +30,7 @@ function Card({ label, children, className }: { label: string; children: React.R
 export function QuoteSide({ model, scene }: { model: QuoteModel; scene: RefObject<SceneApi | null> }) {
   const project = useProjectStore((s) => s.project);
   const performance = useProjectStore((s) => s.settings.performanceMode);
+  const wallHeight = useProjectStore((s) => s.ui.presentWallHeight);
   const s = model.summary;
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex gap-4 border-b border-mk-line py-2.5 text-[14px] last:border-b-0">
@@ -41,7 +43,11 @@ export function QuoteSide({ model, scene }: { model: QuoteModel; scene: RefObjec
       <Card label="3D · Final design" className="h-[268px] bg-[#f1efeb]">
         <SceneBoundary>
           <div className="absolute inset-0" data-quote-3d>
-            <KitchenScene ref={scene} project={project} selectedId={null} blockedIds={EMPTY} wallHeight="cut" interactive={false} performance={performance} />
+            <KitchenScene ref={scene} project={project} selectedId={null} blockedIds={EMPTY} wallHeight={wallHeight} interactive={false} performance={performance} />
+          </div>
+          {/* The PDF picture is taken from this view, so it shows the same walls. */}
+          <div className="absolute top-2.5 right-3 z-10">
+            <WallHeightToggle value={wallHeight} onChange={projectStore.getState().setPresentWallHeight} />
           </div>
           <button
             type="button"
