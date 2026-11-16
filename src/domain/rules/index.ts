@@ -2,6 +2,7 @@
 // the engine keeps only the fixes that are proven safe by applying them to a copy.
 
 import { applyFix, withPlacement } from "../fixes";
+import { findWall } from "../geometry";
 import type { Anchor, Catalogue, CheckResult, Fix, ModulePlacement, Placement, Project } from "../types";
 import { applianceHostRule, chimneyAboveHobRule, hobUnderWindowRule, hostCapacityRule, sinkNearPlumbingRule } from "./appliance";
 import { getContext } from "./context";
@@ -202,7 +203,7 @@ export function checkPlacementFast(project: Project, cat: Catalogue, candidate: 
  * on a 10 mm grid plus the wall end. Null if the unit fits nowhere on that wall.
  */
 export function nearestValidOffset(project: Project, cat: Catalogue, placement: ModulePlacement, wallId: string): number | null {
-  const wall = project.room.walls.find((w) => w.id === wallId);
+  const wall = findWall(project.room, wallId);
   if (!wall || wall.lengthMm < placement.widthMm) return null;
   const max = wall.lengthMm - placement.widthMm;
   const preferred = Math.min(max, Math.max(0, placement.offsetMm));

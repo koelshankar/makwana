@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, PenLine, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { catalogue, getAppliance } from "@/domain/catalogue";
 import { isModulePlacement, isRoomClosed, placementsOnWall } from "@/domain/geometry";
-import { closingHint, perpendicularHeadings } from "@/domain/room-validation";
+import { closingHint, perpendicularHeadings, roomGaps } from "@/domain/room-validation";
 import { emptyMehta } from "@/domain/seed";
 import type { Heading, Wall } from "@/domain/types";
 import { cn } from "@/lib/utils";
@@ -47,6 +47,37 @@ function WallBadge({ id, selected }: { id: string; selected: boolean }) {
   );
 }
 
+/** A deleted wall's place: open, with its letter, heading and length kept; a wall can be drawn back in. */
+function OpenWallRow({ wall }: { wall: Wall }) {
+  const selected = useSetupUi((s) => s.selectedWallId === wall.id);
+  const selectWall = useSetupUi((s) => s.selectWall);
+  const Icon = HEADING_ICONS[wall.heading];
+  return (
+    <div
+      onClick={() => selectWall(wall.id)}
+      data-open-wall={wall.id}
+      className={cn("flex h-[29px] items-center gap-2.5 border-b border-mk-line px-2.5 last:border-b-0", selected ? "bg-mk-accent-soft" : "bg-mk-warn-soft/40 hover:bg-mk-canvas")}
+    >
+      <span className="num flex size-[22px] shrink-0 items-center justify-center rounded-[5px] border border-dashed border-mk-warn text-[11.5px] font-semibold text-mk-warn">{wall.id}</span>
+      <Icon className="size-3.5 shrink-0 text-mk-faint" strokeWidth={2} aria-label={HEADING_NAMES[wall.heading]} />
+      <span className="min-w-0 flex-1 truncate text-[13px] text-mk-warn">Open</span>
+      <span className="num w-[100px] pr-2 text-right text-[12.5px] text-mk-ink-2">{wall.lengthMm} mm</span>
+      <button
+        type="button"
+        aria-label={`Draw wall ${wall.id}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          projectStore.getState().fillGap(wall.id);
+          notifyRecheck([wall.id]);
+        }}
+        className="flex h-[22px] shrink-0 items-center gap-1 rounded-md border border-mk-line bg-mk-panel px-1.5 text-[11.5px] font-medium text-mk-ink hover:border-mk-accent"
+      >
+        <PenLine className="size-3" /> Draw wall
+      </button>
+    </div>
+  );
+}
+
 function WallRow({ wall }: { wall: Wall }) {
   const selected = useSetupUi((s) => s.selectedWallId === wall.id);
   const selectWall = useSetupUi((s) => s.selectWall);
@@ -61,7 +92,7 @@ function WallRow({ wall }: { wall: Wall }) {
     projectStore.getState().removeWall(wall.id);
     setConfirming(false);
     const extra = units.length ? ` with ${units.length} unit${units.length === 1 ? "" : "s"}` : "";
-    toast(`Wall ${wall.id} removed${extra}`, { action: { label: "Undo", onClick: () => projectStore.getState().undo() } });
+    toast(`Wall ${wall.id} removed${extra} · the room is open there`, { action: { label: "Undo", onClick: () => projectStore.getState().undo() } });
   };
 
   return (
@@ -109,7 +140,7 @@ function WallRow({ wall }: { wall: Wall }) {
           <DialogHeader>
             <DialogTitle>Delete Wall {wall.id}?</DialogTitle>
             <DialogDescription>
-              {units.length} unit{units.length === 1 ? "" : "s"} on Wall {wall.id} will be removed. You can undo this.
+              {units.length} unit{units.length === 1 ? "" : "s"} on Wall {wall.id} will be removed. The other walls stay where they are and the room is left open there. You can undo this.
             </DialogDescription>
           </DialogHeader>
           <ul className="num flex flex-wrap gap-1.5 text-[12px]">
@@ -199,7 +230,7 @@ function AddWallFlow() {
 
 function RoomStatus() {
   const room = useProjectStore((s) => s.project.room);
-  const appendWalls = useProjectStore((s) => s.appendWalls);
+  const closeRoom = useProjectStore((s) => s.closeRoom);
   if (room.walls.length === 0) return <span className="text-[13px] text-mk-faint">No walls yet</span>;
   if (isRoomClosed(room)) {
     return (
@@ -209,19 +240,27 @@ function RoomStatus() {
       </span>
     );
   }
-  const hint = closingHint(room)!;
-  const close = () =>
-    appendWalls(hint.walls.map((w) => ({ heading: w.heading, lengthMm: w.lengthMm, label: HEADING_NAMES[w.heading] })));
+  const gaps = roomGaps(room);
+  const hint = closingHint(room);
+  // Close room fills the gaps, and adds the closing walls when the end is open and they fit.
+  const canClose = gaps.length > 0 || !!hint?.valid;
+  const parts = [
+    gaps.length === 1 ? `Open at ${gaps[0].wallId} · ${gaps[0].lengthMm} mm` : gaps.length > 1 ? `Open at ${gaps.map((g) => g.wallId).join(", ")}` : null,
+    hint ? `Open by ${hint.summary}` : null,
+  ].filter(Boolean);
   const button = (
-    <Button size="sm" variant="outline" className="h-7 border-mk-warn/50 text-mk-ink" disabled={!hint.valid} onClick={close}>
+    <Button size="sm" variant="outline" className="h-7 border-mk-warn/50 text-mk-ink" disabled={!canClose} onClick={() => {
+        closeRoom();
+        notifyRecheck();
+      }}>
       Close room
     </Button>
   );
   return (
     <span className="flex items-center gap-2.5 text-[13px] whitespace-nowrap text-mk-warn">
       <span className="size-2 rounded-full bg-mk-warn" />
-      <span className="num text-[12px]">Open by {hint.summary}</span>
-      {hint.valid ? (
+      <span className="num text-[12px]" data-room-open>{parts.join(" · ")}</span>
+      {canClose ? (
         button
       ) : (
         <Tooltip>
@@ -271,9 +310,7 @@ export function WallsSection() {
 
       {walls.length > 0 && (
         <div className="overflow-hidden rounded-lg border border-mk-line">
-          {walls.map((w) => (
-            <WallRow key={w.id} wall={w} />
-          ))}
+          {walls.map((w) => (w.open ? <OpenWallRow key={w.id} wall={w} /> : <WallRow key={w.id} wall={w} />))}
         </div>
       )}
 

@@ -9,7 +9,7 @@ import { getAppliance, getModule } from "./catalogue";
 import {
   blindRange,
   countertopOutline,
-  isRoomClosed,
+  isChainClosed,
   LAYER_DEPTH_MM,
   roomOutline,
   roomVertices,
@@ -473,14 +473,17 @@ function subtract([lo, hi]: [number, number], holes: [number, number][]): [numbe
  */
 function wallExtents(room: Room): Map<string, [number, number]> {
   const segs = wallSegments(room);
-  const frames = wallFrames(room);
-  const closed = isRoomClosed(room);
+  const frames = new Map(wallFrames(room).map((f) => [f.wallId, f]));
+  const closed = isChainClosed(room);
   const T = WALL_THICKNESS_MM;
   const out = new Map<string, [number, number]>();
   segs.forEach((s, i) => {
-    const next = i < segs.length - 1 ? segs[i + 1] : closed ? segs[0] : null;
+    if (s.open) return;
+    // A wall next to an open segment (or the open end) stops square at its end.
+    const after = i < segs.length - 1 ? segs[i + 1] : closed ? segs[0] : null;
+    const next = after && !after.open ? after : null;
     const turn = next === null ? 0 : Math.sign(next.dir.x * s.inwardNormal.x + next.dir.y * s.inwardNormal.y);
-    const f = frames[i];
+    const f = frames.get(s.wallId)!;
     const travelEndAtLength = f.origin.x === s.start.x && f.origin.y === s.start.y;
     const ext: [number, number] = [0, f.lengthMm];
     // turn > 0: convex corner, grow into the corner square; turn < 0: reflex, give way.

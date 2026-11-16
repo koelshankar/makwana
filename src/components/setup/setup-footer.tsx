@@ -24,6 +24,8 @@ export function SetupFooter() {
   const room = useProjectStore((s) => s.project.room);
   const validation = useRoomValidation();
   const closed = isRoomClosed(room);
+  const gaps = room.walls.filter((w) => w.open).length;
+  const standing = room.walls.length - gaps;
   const nFeatures = room.features.length;
 
   const start = (
@@ -40,7 +42,7 @@ export function SetupFooter() {
   return (
     <footer className="flex h-[72px] shrink-0 items-center justify-between gap-6 border-t border-mk-line bg-mk-panel pr-8 pl-[400px]">
       <div className="flex min-w-0 items-center gap-7">
-        <Chip tone={closed ? "ok" : "warn"}>{closed ? `Room closed · ${room.walls.length} walls` : `Room open · ${room.walls.length} walls`}</Chip>
+        <Chip tone={closed ? "ok" : "warn"}>{closed ? `Room closed · ${room.walls.length} walls` : `Room open · ${standing} walls${gaps ? ` · ${gaps} gap${gaps === 1 ? "" : "s"}` : ""}`}</Chip>
         <Chip tone={nFeatures ? "ok" : "muted"}>
           {nFeatures} feature{nFeatures === 1 ? "" : "s"} placed
         </Chip>

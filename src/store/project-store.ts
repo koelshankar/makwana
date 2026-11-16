@@ -9,7 +9,7 @@ import { finishGroup, inheritedFinish, type FinishChoice, type FinishGroup } fro
 import { defaultBlindSide, findPlacement, isModulePlacement, placementToWorldBox, type WorldBox } from "@/domain/geometry";
 import { priceProject } from "@/domain/pricing";
 import { checkCandidate, hasBlocked, issueKey, runAllChecks, runRawChecks } from "@/domain/rules";
-import { validateRoom } from "@/domain/room-validation";
+import { closingHint, validateRoom } from "@/domain/room-validation";
 import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markPdfDownloaded, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
 import { isUsableProject } from "@/domain/project-validation";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
@@ -152,8 +152,16 @@ export interface ProjectState {
   /** Replaces every wall (templates). Features and placements are kept for the rules to re-check. */
   replaceWalls: (walls: NewWall[]) => void;
   updateWall: (id: string, patch: Partial<NewWall>) => void;
-  /** Also removes the wall's features and everything placed on it. */
+  /**
+   * Leaves the wall's place as an open segment (same letter, length and heading), so no other wall
+   * moves, and removes its features and everything placed on it. With no standing wall left, the
+   * room is cleared.
+   */
   removeWall: (id: string) => void;
+  /** Draws a wall in an open segment: the deleted wall comes back with its letter, length and heading. */
+  fillGap: (id: string) => void;
+  /** "Close room": fills every open segment and adds the walls that close the chain, as one undoable step. */
+  closeRoom: () => void;
   setCeiling: (mm: number) => void;
   addFeature: (feature: NewFeature) => string;
   updateFeature: (id: string, patch: FeaturePatch) => void;
@@ -513,7 +521,10 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           removeWall: (id) => {
             edit((p) => {
               const room = p.room;
-              room.walls = room.walls.filter((w) => w.id !== id);
+              const wall = room.walls.find((w) => w.id === id);
+              if (!wall || wall.open) return;
+              wall.open = true;
+              if (room.walls.every((w) => w.open)) room.walls = [];
               room.features = room.features.filter((f) => !("wallId" in f) || f.wallId !== id);
               const removed = new Set(p.modules.filter((m) => m.wallId === id).map((m) => m.id));
               p.modules = p.modules.filter((m) => !removed.has(m.id));
@@ -523,6 +534,18 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             });
             clearMissingSelection();
           },
+          fillGap: (id) =>
+            edit((p) => {
+              const wall = p.room.walls.find((w) => w.id === id);
+              if (wall?.open) delete wall.open;
+            }),
+          closeRoom: () =>
+            edit((p) => {
+              for (const w of p.room.walls) delete w.open;
+              const hint = closingHint(p.room);
+              if (!hint?.valid) return;
+              for (const w of hint.walls) p.room.walls.push({ heading: w.heading, lengthMm: w.lengthMm, label: HEADING_NAMES[w.heading], id: nextWallLetter(p.room.walls) });
+            }),
           setCeiling: (mm) =>
             edit((p) => {
               p.room.ceilingHeightMm = mm;

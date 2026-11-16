@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { catalogue, getFinish, getModule } from "@/domain/catalogue";
 import { finishGroup, type FinishGroup } from "@/domain/finish-defaults";
+import { solidWalls } from "@/domain/geometry";
 import type { Project } from "@/domain/types";
 import type { SceneApi, SceneGhost, ViewPreset } from "@/components/three/kitchen-scene";
 import { SceneBoundary } from "@/components/three/scene-boundary";
@@ -81,7 +82,7 @@ export function ThreePanel() {
   const items = useMemo(() => legend(project), [project]);
   const selected = project.modules.find((m) => m.id === selectedId);
   const notPlaced = outcome?.kind === "blocked" && outcome.project === project ? labelOf(outcome.candidate) : null;
-  const wallId = activeWallId ?? project.room.walls[0]?.id;
+  const wallId = activeWallId ?? solidWalls(project.room)[0]?.id;
   const { setCustomerView } = projectStore.getState();
   const setWallHeight = customer ? projectStore.getState().setPresentWallHeight : projectStore.getState().setWallHeight;
 

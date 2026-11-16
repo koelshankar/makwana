@@ -1,5 +1,6 @@
 // Magnetic snapping for dragging a unit along a wall. Pure.
 
+import { findWall } from "./geometry";
 import { getContext, occupancy } from "./rules/context";
 import type { Catalogue, Layer, Project } from "./types";
 
@@ -21,7 +22,7 @@ export interface SnapTargets {
 }
 
 export function snapTargets(project: Project, cat: Catalogue, wallId: string, layer: Layer, excludeId?: string): SnapTargets {
-  const wall = project.room.walls.find((w) => w.id === wallId);
+  const wall = findWall(project.room, wallId);
   const lengthMm = wall?.lengthMm ?? 0;
   const occ = occupancy(getContext(project, cat), wallId, layer, excludeId);
   const features: number[] = [];

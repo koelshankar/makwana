@@ -208,6 +208,7 @@ export function cornerRule(project: Project, cat: Catalogue): CheckResult[] {
     if (i === segs.length - 1 && !closed) break;
     const s1 = segs[i];
     const s2 = segs[(i + 1) % segs.length];
+    if (s1.open || s2.open) continue; // no corner at an open segment
     const turn = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x;
     if (turn === 0 || Math.sign(turn) !== Math.sign(area)) continue; // not an inside corner
 

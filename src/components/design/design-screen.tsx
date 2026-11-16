@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { getModule, catalogue } from "@/domain/catalogue";
-import { findPlacement, isModulePlacement } from "@/domain/geometry";
+import { findPlacement, isModulePlacement, solidWalls } from "@/domain/geometry";
 import { projectStore, useBlockedIds, useProjectStore, useRoomValidation } from "@/store/project-store";
 import { commitGhost } from "./commit";
 import { DesignFooter } from "./design-footer";
@@ -130,7 +130,7 @@ export function DesignScreen() {
     if (!moduleCode && !applianceId) return;
     const { ui, project, showWall } = projectStore.getState();
     // Units are dropped onto an elevation: open one if the plan is showing.
-    if (ui.designTab === "plan") showWall(ui.activeWallId ?? project.room.walls[0].id);
+    if (ui.designTab === "plan") showWall(ui.activeWallId ?? solidWalls(project.room)[0].id);
     useInteraction.getState().set({
       item: moduleCode ? { kind: "new", moduleCode } : { kind: "newAppliance", applianceId: applianceId! },
       ghost: null,

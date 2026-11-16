@@ -212,3 +212,94 @@ test.describe("Feedback 1 · item 5: full screen opens the active view", () => {
     await expect(presets.getByRole("radio", { name: "3D" })).toHaveAttribute("aria-checked", "true");
   });
 });
+
+test.describe("Feedback 1 · item 1: deleting a wall leaves a gap", () => {
+  /** Each standing wall's polygon in the Room Setup plan (world mm), keyed by wall. */
+  const wallShapes = (page: Page) =>
+    page.locator('svg[aria-label="Room plan"] polygon:has(title)').evaluateAll((ps) =>
+      Object.fromEntries(ps.map((p) => [p.querySelector("title")!.textContent!.split(" ·")[0], p.getAttribute("points")!.split(" ")])),
+    );
+  const footer = (page: Page) => page.locator("footer");
+
+  test("the other walls stay put; the gap is dashed; draw it back, Close room, or a template", async ({ page }) => {
+    await open(page, "/setup");
+    await resetDemo(page);
+    const before = await wallShapes(page);
+
+    await page.getByRole("button", { name: "Delete wall C" }).click();
+    await expect(page.locator('[data-open-wall="C"]')).toBeVisible();
+    const after = await wallShapes(page);
+    expect(Object.keys(after)).toEqual(["Wall A", "Wall B", "Wall D", "Wall E", "Wall F", "Wall G", "Wall H"]);
+    // Every other wall is exactly where it was; B and D keep their room faces (inner corners).
+    for (const id of ["Wall A", "Wall E", "Wall F", "Wall G", "Wall H"]) expect(after[id], id).toEqual(before[id]);
+    for (const id of ["Wall B", "Wall D"]) expect(after[id].slice(0, 2), id).toEqual(before[id].slice(0, 2));
+
+    // Shown dashed with its letter and length; the room is open and design is locked.
+    const gap = page.locator('[data-gap="C"]');
+    await expect(gap.locator("line[stroke-dasharray]")).toHaveCount(1);
+    await expect(gap).toContainText("C · 1600 · open");
+    await expect(footer(page)).toContainText("Room open · 7 walls · 1 gap");
+    await expect(footer(page)).toContainText("Wall C is open: draw a wall in the 1600 mm gap between Wall B and Wall D.");
+    await expect(page.getByRole("button", { name: "Start Designing" })).toBeDisabled();
+    await expect(page.locator("[data-room-open]")).toHaveText("Open at C · 1600 mm");
+    await page.locator("main, body").first().screenshot({ path: test.info().outputPath("gap.png") });
+
+    // Draw the wall in from the plan: the same letter, length and heading.
+    // A straight line has a zero-height box: click its middle on screen, as a person would.
+    const mid = await gap.locator("line").first().evaluate((l: SVGLineElement) => {
+      const m = l.getScreenCTM()!;
+      const p = new DOMPoint((l.x1.baseVal.value + l.x2.baseVal.value) / 2, (l.y1.baseVal.value + l.y2.baseVal.value) / 2).matrixTransform(m);
+      return { x: p.x, y: p.y };
+    });
+    await page.mouse.click(mid.x, mid.y);
+    await page.getByRole("button", { name: "Draw Wall C", exact: true }).click();
+    await expect(footer(page)).toContainText("Room closed · 8 walls");
+    expect(await wallShapes(page)).toEqual(before);
+    await expect(page.getByRole("button", { name: "Start Designing" })).toBeEnabled();
+
+    // From the walls list, and with Close room.
+    await page.getByRole("button", { name: "Delete wall C" }).click();
+    await page.getByRole("button", { name: "Draw wall C", exact: true }).click();
+    await expect(footer(page)).toContainText("Room closed · 8 walls");
+    await page.getByRole("button", { name: "Delete wall C" }).click();
+    await page.getByRole("button", { name: "Delete wall E" }).click();
+    await expect(page.locator("[data-room-open]")).toHaveText("Open at C, E");
+    await page.getByRole("button", { name: "Close room" }).click();
+    await expect(footer(page)).toContainText("Room closed · 8 walls");
+    expect(await wallShapes(page)).toEqual(before);
+
+    // An open end still gets the hint and closes as before (the main script's "open by" path).
+    await page.getByLabel("Wall B length").fill("2462");
+    await page.getByLabel("Wall B length").press("Enter");
+    await expect(page.locator("[data-room-open]")).toHaveText("Open by 62 mm");
+    await page.getByLabel("Wall B length").fill("2400");
+    await page.getByLabel("Wall B length").press("Enter");
+    await expect(footer(page)).toContainText("Room closed · 8 walls");
+
+    // A template replaces a room with a gap.
+    await page.getByRole("button", { name: "Delete wall C" }).click();
+    await page.getByRole("button", { name: /Start from a template/ }).click();
+    await page.getByRole("menuitem", { name: "Straight" }).click();
+    await page.getByRole("button", { name: "Replace walls" }).click();
+    await expect(page.locator("[data-open-wall]")).toHaveCount(0);
+    await expect(footer(page)).toContainText("Room closed · 4 walls");
+  });
+
+  test("a wall with units: confirm, its units go, the others stay; undo brings it all back", async ({ page }) => {
+    await open(page, "/setup");
+    await resetDemo(page);
+    await loadSample(page);
+    const before = await wallShapes(page);
+    await page.getByRole("button", { name: "Delete wall B" }).click();
+    await page.getByRole("button", { name: "Delete wall and units" }).click();
+    await expect(page.locator('[data-open-wall="B"]')).toBeVisible();
+    for (const id of ["Wall D", "Wall E", "Wall F", "Wall G", "Wall H"]) expect((await wallShapes(page))[id], id).toEqual(before[id]);
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("makwana:project")!).state.project);
+    expect(saved.modules.some((m: { wallId: string }) => m.wallId === "B")).toBe(false);
+    expect(saved.modules.some((m: { wallId: string }) => m.wallId === "A")).toBe(true);
+    expect(saved.room.walls.find((w: { id: string }) => w.id === "B")).toMatchObject({ lengthMm: 2400, heading: "S", open: true });
+    await page.getByRole("button", { name: "Undo" }).first().click();
+    await expect(page.locator("[data-open-wall]")).toHaveCount(0);
+    await expect(page.locator("footer")).toContainText("Room closed · 8 walls");
+  });
+});

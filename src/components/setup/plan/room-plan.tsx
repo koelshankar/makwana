@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { roomOutline, wallFrames, wallToWorld, worldToWall, type WallFrame } from "@/domain/geometry";
+import { isRoomClosed, roomOutline, wallFrames, wallToWorld, worldToWall, type WallFrame } from "@/domain/geometry";
 import { closingHint, rectInsidePolygon, validateRoom } from "@/domain/room-validation";
 import type { Feature, Point } from "@/domain/types";
 import { WALL_THICKNESS_MM } from "@/domain/zones";
@@ -82,7 +82,9 @@ export function RoomPlan() {
     [room, drag],
   );
   const hint = useMemo(() => closingHint(room), [room]);
-  const closed = walls.length > 0 && !hint;
+  // The chain returns to its start, so the floor is known (columns can go in) even with a gap.
+  const chainClosed = walls.length > 0 && !hint;
+  const closed = isRoomClosed(room);
 
   const { boxRef, svgRef, size, setView, zoom, cx, cy, vb, px, zoomAt, toWorld } = usePlanViewport(fit);
 
@@ -141,7 +143,7 @@ export function RoomPlan() {
   };
 
   const placeColumn = (p: Point) => {
-    if (!closed || !pointInPolygon(p, outline.inner)) return;
+    if (!chainClosed || !pointInPolygon(p, outline.inner)) return;
     const { x, y } = snapColumn(frames, p);
     const rect = { minX: x, maxX: x + COLUMN_SIZE, minY: y, maxY: y + COLUMN_SIZE };
     if (!rectInsidePolygon(rect, outline.inner)) return;
@@ -200,7 +202,7 @@ export function RoomPlan() {
       return setGhost({ kind: "opening", wallId: hit.frame.wallId, offset: featureOffset(d)!, width: openingKind === "window" ? 900 : 800 });
     }
     if (tool === "column") {
-      if (!closed || !pointInPolygon(p, outline.inner)) return setGhost(null);
+      if (!chainClosed || !pointInPolygon(p, outline.inner)) return setGhost(null);
       const { x, y } = snapColumn(frames, p);
       setGhost({ kind: "column", x, y, ok: rectInsidePolygon({ minX: x, maxX: x + COLUMN_SIZE, minY: y, maxY: y + COLUMN_SIZE }, outline.inner) });
     }
@@ -278,6 +280,7 @@ export function RoomPlan() {
             hoverWallId={ghost?.kind === "wall" ? ghost.wallId : null}
             dragging={drag}
             onWallClick={onWallClick}
+            onGapClick={(wallId) => selectWall(wallId)}
             onFeaturePointerDown={startFeatureDrag}
           />
           {n === 0 && (
@@ -312,6 +315,41 @@ export function RoomPlan() {
               ))}
             </g>
           )}
+
+          {/* The selected open segment: draw its wall back in */}
+          {(() => {
+            const i = walls.findIndex((w) => w.id === selectedWallId && w.open);
+            if (i < 0) return null;
+            const a = outline.inner[i];
+            const b = outline.inner[(i + 1) % outline.inner.length];
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            const toward = { x: roomCentre.x - mid.x, y: roomCentre.y - mid.y };
+            const horizontal = a.y === b.y;
+            const at = horizontal ? { x: mid.x, y: mid.y + Math.sign(toward.y) * font(26) } : { x: mid.x + Math.sign(toward.x) * font(62), y: mid.y };
+            const text = `Draw Wall ${walls[i].id}`;
+            const w = font(text.length * 6.8 + 22);
+            const fill = () => {
+              projectStore.getState().fillGap(walls[i].id);
+              notifyRecheck([walls[i].id]);
+            };
+            return (
+              <g
+                role="button"
+                aria-label={text}
+                tabIndex={0}
+                data-draw-gap={walls[i].id}
+                className="cursor-pointer"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={fill}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && fill()}
+              >
+                <rect x={at.x - w / 2} y={at.y - font(12)} width={w} height={font(24)} rx={font(12)} fill={C.accent} />
+                <text x={at.x} y={at.y + font(4)} textAnchor="middle" fontSize={font(12)} fill="white" fontWeight={600}>
+                  + {text}
+                </text>
+              </g>
+            );
+          })()}
 
           {/* Placement ghosts */}
           {ghost?.kind === "opening" &&

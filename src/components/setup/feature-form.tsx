@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { validateRoom } from "@/domain/room-validation";
@@ -42,7 +42,8 @@ function NumField({
 }
 
 function WallField({ label, value, onChange, optional }: { label: string; value: string | undefined; onChange: (id: string | undefined) => void; optional?: boolean }) {
-  const walls = useProjectStore((s) => s.project.room.walls);
+  const allWalls = useProjectStore((s) => s.project.room.walls);
+  const walls = useMemo(() => allWalls.filter((w) => !w.open), [allWalls]);
   const items = [...(optional ? [{ value: "", label: "—" }] : []), ...walls.map((w) => ({ value: w.id, label: `Wall ${w.id}` }))];
   return (
     <label className="flex flex-col gap-1">

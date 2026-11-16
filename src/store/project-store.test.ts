@@ -382,6 +382,70 @@ describe("undo granularity", () => {
   });
 });
 
+describe("deleting a wall leaves a gap (Feedback 1, item 1)", () => {
+  it("leaves an open segment with the wall's letter, length and heading; the others don't move", () => {
+    const store = createProjectStore(sampleDesign);
+    store.getState().removeWall("B");
+    const walls = store.getState().project.room.walls;
+    expect(walls.map((w) => w.id)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    expect(walls[1]).toEqual({ ...sampleDesign.room.walls[1], open: true });
+    expect(walls.filter((w) => w.id !== "B")).toEqual(sampleDesign.room.walls.filter((w) => w.id !== "B"));
+    // Its units and features go, as before.
+    expect(store.getState().project.modules.some((m) => m.wallId === "B")).toBe(false);
+    expect(store.getState().project.room.features.some((f) => f.kind === "beam")).toBe(false);
+  });
+
+  it("drawing a wall in the gap brings back the same letter; one undo each", () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("C");
+    store.getState().fillGap("C");
+    expect(store.getState().project.room.walls).toEqual(emptyMehta.room.walls);
+    store.getState().undo();
+    expect(store.getState().project.room.walls.find((w) => w.id === "C")?.open).toBe(true);
+    store.getState().undo();
+    expect(store.getState().project).toBe(emptyMehta);
+  });
+
+  it("Close room fills every gap and closes an open end, as one step", () => {
+    // Mehta without wall H (and its door): the chain ends 2400 mm short of where A starts.
+    const room = { ...emptyMehta.room, walls: emptyMehta.room.walls.slice(0, 7), features: emptyMehta.room.features.filter((f) => f.kind !== "door") };
+    const store = createProjectStore({ ...emptyMehta, room });
+    store.getState().removeWall("B");
+    store.getState().removeWall("E");
+    const steps = store.getState().past.length;
+    store.getState().closeRoom();
+    const walls = store.getState().project.room.walls;
+    expect(walls.some((w) => w.open)).toBe(false);
+    expect(walls.map((w) => w.id)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    expect(walls[7]).toMatchObject({ heading: "N", lengthMm: 2400 });
+    expect(walls.slice(0, 7)).toEqual(room.walls);
+    expect(store.getState().past.length).toBe(steps + 1);
+  });
+
+  it("a new wall skips letters still held by gaps; deleting the last standing wall clears the room", () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("H");
+    expect(store.getState().addWall({ heading: "W", lengthMm: 500 })).toBe("I");
+    const small = createProjectStore({ ...emptyMehta, room: { ...emptyMehta.room, walls: emptyMehta.room.walls.slice(0, 2), features: [] } });
+    small.getState().removeWall("A");
+    small.getState().removeWall("B");
+    expect(small.getState().project.room.walls).toEqual([]);
+  });
+
+  it("a template replaces gaps with the template's walls", () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("C");
+    store.getState().replaceWalls([
+      { heading: "E", lengthMm: 3600 },
+      { heading: "S", lengthMm: 2100 },
+      { heading: "W", lengthMm: 3600 },
+      { heading: "N", lengthMm: 2100 },
+    ]);
+    expect(store.getState().project.room.walls.some((w) => w.open)).toBe(false);
+    expect(store.getState().project.room.walls.map((w) => w.id)).toEqual(["A", "B", "C", "D"]);
+  });
+});
+
 describe("appliances in the store", () => {
   it("removing a host removes its fitted appliances in one step; one undo restores both", () => {
     const store = createProjectStore(sampleDesign);

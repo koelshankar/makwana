@@ -1,7 +1,7 @@
 "use client";
 
 import { Minus, Plus } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { FULL_VIEW_CLASS, FullViewButton, useFullView } from "@/components/shell/full-view";
 import { cn } from "@/lib/utils";
 import { projectStore, useProjectStore } from "@/store/project-store";
@@ -11,7 +11,8 @@ import { BlockedCard, WarningNote } from "./outcome-cards";
 
 /** Plan and per-wall elevation tabs. */
 export function ViewsPanel() {
-  const walls = useProjectStore((s) => s.project.room.walls);
+  const allWalls = useProjectStore((s) => s.project.room.walls);
+  const walls = useMemo(() => allWalls.filter((w) => !w.open), [allWalls]);
   const ceiling = useProjectStore((s) => s.project.room.ceilingHeightMm);
   const tab = useProjectStore((s) => s.ui.designTab);
   const active = useProjectStore((s) => s.ui.activeWallId);

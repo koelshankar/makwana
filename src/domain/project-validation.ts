@@ -56,7 +56,7 @@ function validShape(v: unknown, cat: Catalogue): v is Project {
   const wallIds = new Set<string>();
   for (const w of room.walls) {
     if (!isObj(w) || !isStr(w.id) || wallIds.has(w.id) || !isInt(w.lengthMm) || w.lengthMm <= 0 || !oneOf(w.heading, HEADINGS)) return false;
-    if (!optional(w.label, isStr)) return false;
+    if (!optional(w.label, isStr) || !(w.open === undefined || w.open === true)) return false;
     wallIds.add(w.id);
   }
   if (!room.features.every((f) => validFeature(f, wallIds))) return false;

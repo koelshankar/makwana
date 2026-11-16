@@ -55,6 +55,8 @@ export interface PlanBaseProps {
   /** The "CEILING 2850" label in the middle of a closed room. */
   showCeiling?: boolean;
   onWallClick?: (frame: WallFrame, e: React.MouseEvent) => void;
+  /** Click on an open segment (a deleted wall's place, drawn dashed). */
+  onGapClick?: (wallId: string, e: React.MouseEvent) => void;
   onFeaturePointerDown?: (f: Feature, e: React.PointerEvent) => void;
   /** Drawn on the floor, under walls and features (e.g. unit footprints). */
   children?: React.ReactNode;
@@ -76,6 +78,7 @@ export function PlanBase({
   showMarkers = true,
   showCeiling = true,
   onWallClick,
+  onGapClick,
   onFeaturePointerDown,
   children,
 }: PlanBaseProps) {
@@ -190,7 +193,8 @@ export function PlanBase({
       })}
 
       {/* Walls */}
-      {frames.map((f, i) => {
+      {frames.map((f) => {
+        const i = f.index; // chain index: open segments keep their place in the outline
         const a = outline.inner[i];
         const b = outline.inner[(i + 1) % outline.inner.length];
         const oa = outline.outer[i];
@@ -211,6 +215,39 @@ export function PlanBase({
           >
             <title>{`Wall ${f.wallId} · ${f.lengthMm} mm`}</title>
           </polygon>
+        );
+      })}
+
+      {/* Open segments: a deleted wall's place, dashed, with its letter and length */}
+      {walls.map((w, i) => {
+        if (!w.open) return null;
+        const a = outline.inner[i];
+        const b = outline.inner[(i + 1) % outline.inner.length];
+        if (!a || !b) return null;
+        const selected = w.id === selectedWallId;
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const horizontal = a.y === b.y;
+        // Label outside the room: away from the room centre.
+        const away = horizontal ? { x: 0, y: Math.sign(mid.y - roomCentre.y) || -1 } : { x: Math.sign(mid.x - roomCentre.x) || -1, y: 0 };
+        const at = { x: mid.x + away.x * font(26), y: mid.y + away.y * font(18) + font(4) };
+        return (
+          <g key={`gap-${w.id}`} data-gap={w.id} className={onGapClick ? "cursor-pointer" : undefined} onPointerDown={(e) => onGapClick && e.stopPropagation()} onClick={(e) => onGapClick?.(w.id, e)}>
+            {/* A wide invisible hit line, so the dashed line is easy to click */}
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={14} vectorEffect="non-scaling-stroke" />
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selected ? C.accent : C.warn} strokeWidth={selected ? 3 : 2} strokeDasharray="8 6" vectorEffect="non-scaling-stroke" />
+            <text
+              x={at.x}
+              y={at.y}
+              textAnchor={horizontal ? "middle" : away.x < 0 ? "end" : "start"}
+              fontSize={font(11)}
+              className="num"
+              fill={selected ? C.accentInk : C.warn}
+              pointerEvents="none"
+            >
+              <tspan fontWeight={600}>{w.id}</tspan> · {mm(w.lengthMm)} · open
+            </text>
+            <title>{`Wall ${w.id} is open · ${w.lengthMm} mm`}</title>
+          </g>
         );
       })}
 

@@ -36,6 +36,8 @@ export interface WallSegment {
   dir: Point; // unit direction of travel
   inwardNormal: Point; // unit normal pointing into the room
   lengthMm: number;
+  /** An open segment (a deleted wall's place), not a wall. */
+  open: boolean;
 }
 
 /** Corner points: vertex i is the start of wall i. Includes the final end point. */
@@ -65,10 +67,26 @@ export function signedArea(room: Room): number {
   return sum / 2;
 }
 
-export function isRoomClosed(room: Room): boolean {
+/** The chain of walls and open segments returns to where Wall A starts. */
+export function isChainClosed(room: Room): boolean {
   if (room.walls.length < 4) return false;
   const end = roomVertices(room)[room.walls.length];
   return end.x === 0 && end.y === 0;
+}
+
+/** Closed and with no open segment: ready for design. */
+export function isRoomClosed(room: Room): boolean {
+  return isChainClosed(room) && !room.walls.some((w) => w.open);
+}
+
+/** Walls that stand: everything except open segments (deleted walls keeping their place). */
+export function solidWalls(room: Room): Wall[] {
+  return room.walls.filter((w) => !w.open);
+}
+
+/** Open segments left by deleted walls, in chain order. */
+export function openSegments(room: Room): Wall[] {
+  return room.walls.filter((w) => w.open);
 }
 
 export function wallSegments(room: Room): WallSegment[] {
@@ -85,6 +103,7 @@ export function wallSegments(room: Room): WallSegment[] {
       dir,
       inwardNormal,
       lengthMm: wall.lengthMm,
+      open: !!wall.open,
     };
   });
 }
@@ -103,8 +122,9 @@ export interface WallFrame {
   lengthMm: number;
 }
 
+/** Frames of the standing walls; open segments have none (nothing is placed on or against them). `index` is the chain index. */
 export function wallFrames(room: Room): WallFrame[] {
-  return wallSegments(room).map((s) => {
+  return wallSegments(room).filter((s) => !s.open).map((s) => {
     const n = s.inwardNormal;
     // Facing the wall means facing -n; the viewer's right is (n.y, -n.x).
     const u = { x: n.y, y: -n.x };
@@ -126,8 +146,9 @@ export function wallFrame(room: Room, wallId: string): WallFrame {
   return frame;
 }
 
+/** A standing wall by id; open segments don't count. */
 export function findWall(room: Room, wallId: string): Wall | undefined {
-  return room.walls.find((w) => w.id === wallId);
+  return room.walls.find((w) => w.id === wallId && !w.open);
 }
 
 // ---------------------------------------------------------------------------
@@ -469,22 +490,24 @@ export const rectArea = (r: Rect) => (r.maxX - r.minX) * (r.maxY - r.minY);
 export function roomOutline(room: Room, thicknessMm: number): { inner: Point[]; outer: Point[] } {
   const segs = wallSegments(room);
   if (segs.length === 0) return { inner: [], outer: [] };
-  const closed = isRoomClosed(room);
+  const closed = isChainClosed(room);
   const offset = (p: Point, a: Point, b: Point) => ({
     x: p.x - (a.x + b.x) * thicknessMm,
     y: p.y - (a.y + b.y) * thicknessMm,
   });
   const zero = { x: 0, y: 0 };
+  // An open segment has no thickness: a corner next to one only takes its wall's normal.
+  const normal = (s: WallSegment) => (s.open ? zero : s.inwardNormal);
   const inner = segs.map((s) => s.start);
   const outer = segs.map((s, i) => {
     // An open room's first corner only has one wall, so only that wall's normal applies.
-    const prev = i === 0 && !closed ? zero : segs[(i - 1 + segs.length) % segs.length].inwardNormal;
-    return offset(s.start, s.inwardNormal, prev);
+    const prev = i === 0 && !closed ? zero : normal(segs[(i - 1 + segs.length) % segs.length]);
+    return offset(s.start, normal(s), prev);
   });
   if (!closed) {
     const last = segs[segs.length - 1];
     inner.push(last.end);
-    outer.push(offset(last.end, last.inwardNormal, zero));
+    outer.push(offset(last.end, normal(last), zero));
   }
   return { inner, outer };
 }

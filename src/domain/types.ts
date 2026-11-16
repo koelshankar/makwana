@@ -15,6 +15,11 @@ export interface Wall {
   lengthMm: number;
   heading: Heading; // direction of travel along the wall
   label?: string; // short note shown in Room Setup, e.g. "East · window"
+  /**
+   * A deleted wall's place in the chain: an open segment with its letter, length and heading, so
+   * the walls after it don't move. Nothing stands on it; the room is open until a wall is drawn in.
+   */
+  open?: true;
 }
 
 export interface WindowFeature {

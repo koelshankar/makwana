@@ -1,6 +1,6 @@
 // Pure checks for the Room Setup screen: is this room ready for design, and how would it close?
 
-import { isRoomClosed, roomVertices, wallFrames } from "./geometry";
+import { isChainClosed, roomVertices, wallFrames } from "./geometry";
 import type { Feature, Heading, Point, Rect, Room, Wall } from "./types";
 
 export interface RoomIssue {
@@ -57,7 +57,8 @@ export function featureWallId(f: Feature): string | undefined {
 /** Validates the room for design. Every message is written for a salesperson. */
 export function validateRoom(room: Room): RoomValidation {
   const issues: RoomIssue[] = [];
-  const walls = new Map(room.walls.map((w) => [w.id, w]));
+  // Open segments are not walls: features can't be on them.
+  const walls = new Map(room.walls.filter((w) => !w.open).map((w) => [w.id, w]));
 
   if (room.walls.length === 0) issues.push({ message: "Add the room's walls, starting with Wall A." });
 
@@ -69,7 +70,11 @@ export function validateRoom(room: Room): RoomValidation {
     }
   });
 
-  const closed = isRoomClosed(room);
+  // The chain returns to its start; the shape (and so the floor) is known even with gaps in it.
+  const closed = isChainClosed(room);
+  for (const gap of roomGaps(room)) {
+    issues.push({ wallId: gap.wallId, message: `Wall ${gap.wallId} is open: draw a wall in the ${gap.lengthMm} mm gap${gap.between}.` });
+  }
   if (room.walls.length > 0 && !closed) {
     const hint = closingHint(room);
     const gap = hint ? ` (open by ${hint.summary})` : "";
@@ -169,9 +174,35 @@ export interface ClosingHint {
   summary: string;
 }
 
-/** For an open room, how far it is from closing and which walls would close it. */
+export interface RoomGap {
+  /** The open segment: the deleted wall's letter, length and heading. */
+  wallId: string;
+  lengthMm: number;
+  heading: Heading;
+  /** e.g. " between Wall B and Wall D", or "" when it has no standing neighbour. */
+  between: string;
+}
+
+/** The open segments left by deleted walls, with their standing neighbours, in chain order. */
+export function roomGaps(room: Room): RoomGap[] {
+  const n = room.walls.length;
+  const chainClosed = isChainClosed(room);
+  return room.walls.flatMap((w, i) => {
+    if (!w.open) return [];
+    const prev = i > 0 || chainClosed ? room.walls[(i - 1 + n) % n] : undefined;
+    const next = i < n - 1 || chainClosed ? room.walls[(i + 1) % n] : undefined;
+    const names = [prev, next].filter((x) => x && !x.open).map((x) => `Wall ${x!.id}`);
+    const between = names.length === 2 ? ` between ${names[0]} and ${names[1]}` : names.length === 1 ? ` next to ${names[0]}` : "";
+    return [{ wallId: w.id, lengthMm: w.lengthMm, heading: w.heading, between }];
+  });
+}
+
+/**
+ * For a room whose chain of walls doesn't return to its start, how far it is from closing and
+ * which walls would close it. Null once the chain closes (gaps are reported by roomGaps).
+ */
 export function closingHint(room: Room): ClosingHint | null {
-  if (room.walls.length === 0 || isRoomClosed(room)) return null;
+  if (room.walls.length === 0 || isChainClosed(room)) return null;
   const end = roomVertices(room)[room.walls.length];
   const dx = 0 - end.x; // not -end.x, which gives -0
   const dy = 0 - end.y;
@@ -193,12 +224,13 @@ export function closingHint(room: Room): ClosingHint | null {
 
 /** Wall ids at each room corner, e.g. "A/H", for describing positions. */
 export function cornerNames(room: Room): { point: Point; name: string }[] {
-  const frames = wallFrames(room);
   const verts = roomVertices(room);
-  const closed = isRoomClosed(room);
-  return frames.flatMap((f, i) => {
-    if (i === 0 && !closed) return [];
-    const prev = frames[(i - 1 + frames.length) % frames.length];
-    return [{ point: verts[i], name: `${f.wallId}/${prev.wallId}` }];
+  const closed = isChainClosed(room);
+  const n = room.walls.length;
+  return wallFrames(room).flatMap((f) => {
+    if (f.index === 0 && !closed) return [];
+    const prev = room.walls[(f.index - 1 + n) % n];
+    if (prev.open) return []; // no corner at an open segment
+    return [{ point: verts[f.index], name: `${f.wallId}/${prev.id}` }];
   });
 }
