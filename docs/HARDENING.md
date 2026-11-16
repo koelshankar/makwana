@@ -128,3 +128,48 @@ Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs
 ## Lockfile note
 
 npm 11.5.2 removed other platforms' optional bindings (rolldown, lightningcss) from `package-lock.json` when installing `@playwright/test`, even with `--package-lock-only`. That broke vitest. The committed lockfile is the original plus only the four Playwright entries, checked with a clean `npm ci`. Use `npm ci`, not `npm install`, and check the lockfile diff after adding any dependency.
+
+# Feedback 1
+
+Branch: `feedback-1` (from `main` at `7ebdeee`, after `hardening-1` was fast-forwarded into `main`). One commit per item. Not merged.
+
+| Item | Status | Commit |
+|---|---|---|
+| 1 Deleting a wall leaves a gap | Plan sent, waiting for approval | — |
+| 2 Choose which wall a unit faces | Plan sent, waiting for approval | — |
+| 3 3D "Auto" wall mode | Done | `ccb1449` |
+| 4 Wall labels on the Design 3D floor | Done | `b01dcae` |
+| 5 Full screen opens the active view | Done | `7afe5dd` |
+
+## Item 3: Auto wall mode
+
+- `WallHeightMode` is `"cut" | "full" | "auto"`. Auto builds the walls at full height and hides the walls between the camera and the room. Units stay, including those on hidden walls.
+- `wallsInFront` (`src/domain/three-model.ts`) decides which walls to hide. A wall hides if the camera looks through it (cosine above 0.25 with its inward normal), or if its midpoint is on the camera's side of the room centre. The second rule catches duct-box and notch walls whose room face points at the camera (wall F in the Mehta room). It uses the plan part of the camera's unit view direction, so a view from above (Top) hides nothing.
+- `RoomMesh` applies it in `scene.onBeforeRender`, which three.js runs before culling on every `gl.render`. That covers orbiting, presets and the PDF snapshot, which renders directly. It replaces the old per-frame fade. Full height fades with the same rule, so Top in Full height no longer fades C, E and G.
+- Design keeps Cut at 450 by default, and Reset demo still sets it. Show customer and the Quote screen share `ui.presentWallHeight` (Auto by default, not persisted) and offer Auto, Cut at 450 and Full height. The PDF picture is taken from the Quote view. The print page's own fallback snapshot uses the same mode.
+- Tests. Unit: Auto at full height; hidden walls from the 3D preset (C, D, E, F, G, H), half a turn round (A, B, F), facing A, from above and at a glancing angle. e2e (`e2e/feedback.spec.ts`): Design options and default, Auto hides C–H then A, B, F after two quarter turns, Top hides nothing, back to Cut; Show customer opens in Auto and leaving it restores Design's Cut; Quote defaults to Auto; Auto and Cut give different PDF pictures. The canvas carries `data-wall-mode` and `data-hidden-walls` for these tests.
+- Main script: the customer view expects Auto checked (and allows the Auto button); the Quote step expects Auto, Cut at 450 and Full height with Auto checked.
+
+## Item 4: Wall labels
+
+- `wallLabelSpots` (`src/domain/three-model.ts`) places each label at the middle of its wall's base, 650 mm into the room (just past the 600 mm countertop), or halfway across a shallower room (wall F: 500 mm).
+- `WallLabels` (`src/components/three/wall-labels.tsx`) draws flat badges from a canvas texture, so there's no web font to fetch offline. Each badge turns about the vertical to read upright from the camera.
+- `KitchenScene` takes a `wallLabels` prop, which is on only in the Design panel. Show customer, the Quote view and the print page don't show labels, so neither does the PDF picture.
+- Tests. Unit: one label per wall, in order, at mid-wall, at the right depth, inside the floor; the shallow-room case. e2e: Design shows A–H (`data-wall-labels`); Show customer shows none, and they return on Exit; the Quote canvas has none; the PDF picture renders.
+
+## Item 5: Full screen
+
+- **Cause.** The Room Setup button called `section.requestFullscreen()` and nothing else. A browser that refuses full screen rejects the promise with "not granted". Refusals come from embedded and preview browsers, iframes without `allow="fullscreen"`, an unfocused window, and Playwright's Chrome, headless or headed. The rejection was uncaught and the screen didn't change.
+  - In a focused tab of a normal Chrome (started by hand, driven over CDP) it was granted. Even then, only the plan section was full screen, so menus and tooltips, which portal to `<body>`, couldn't open over it (Column / beam / duct).
+  - Design had no full-screen control for its plan, elevation or 3D view.
+- **Fix.** `useFullView` (`src/components/shell/full-view.tsx`) makes the view fill the window as an overlay (`fixed inset-0 z-40`). This always works and keeps menus visible. It also asks the browser for full screen through `requestBrowserFullscreen` (`src/lib/full-screen.ts`), which never throws or rejects.
+  - Esc closes it, unless a menu or dialog has focus; so does the button again, or leaving browser full screen.
+  - Used in three places: the Room Setup plan; the Design views panel (the active Plan or Wall tab, and the tabs still switch); the Design 3D panel (keeps its preset, Top or 3D, the selection and the wall letters).
+  - Show customer now has a presentation icon, so it doesn't look like a second full-screen button.
+  - Layout: below 1600 px the elevation size label is hidden, and below 1440 px the "3D view" heading, so the wall tabs and 3D controls keep their room.
+- **Tests.** Unit: a refusal or a missing API resolves false; exit only when in full screen, and failures are swallowed. e2e: Room Setup fills the window, the menu still opens, Esc closes the menu first, then the view, and so does the button; Design plan then Wall B inside full screen; 3D keeps Top and its labels, and isn't the customer view. The old button failed the console guard here with "not granted".
+- **Not covered by automation.** Real browser full screen, because Playwright's Chrome refuses it. Check it by hand in Chrome.
+
+## Checks (after items 3–5)
+
+`npm test` 190/190, `npx tsc --noEmit` and `npm run lint` clean, `npm run build` passes (`/design` 339 kB). `npx playwright test`: 52 passed, 2 skipped (the automatic performance mode half, as before), across both sizes. The count includes the console guard's expected-failure self-check.
