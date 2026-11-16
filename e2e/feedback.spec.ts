@@ -116,3 +116,32 @@ test.describe("Feedback 1 · item 3: Auto wall mode", () => {
     await expect(page.locator("[data-print-3d]")).toHaveAttribute("src", /^data:image\/png;base64,/);
   });
 });
+
+test.describe("Feedback 1 · item 4: wall labels on the Design 3D floor", () => {
+  test("Design shows A to H; Show customer, the Quote view and the PDF picture don't", async ({ page, context }) => {
+    await context.addInitScript(() => (window.print = () => {}));
+    await open(page, "/setup");
+    await resetDemo(page);
+    await loadSample(page);
+    await stepper(page, "Design").click();
+    const panel = page.locator("[data-three-panel]");
+    const canvas = panel.locator("canvas[data-scene-ready]");
+    await expect(canvas).toHaveAttribute("data-wall-labels", "A,B,C,D,E,F,G,H");
+    await canvas.screenshot({ path: test.info().outputPath("design-labels.png") });
+
+    await page.getByRole("button", { name: "Show customer" }).click();
+    await expect(panel).toHaveAttribute("data-customer", "true");
+    await expect(canvas).not.toHaveAttribute("data-wall-labels", /.*/);
+    await panel.getByRole("button", { name: "Exit" }).click();
+    await expect(canvas).toHaveAttribute("data-wall-labels", "A,B,C,D,E,F,G,H");
+
+    // The Quote view, which the PDF picture is taken from, has none.
+    await stepper(page, "Quote").click();
+    const quote = page.locator("[data-quote-3d] canvas[data-scene-ready]");
+    await expect(quote).toHaveAttribute("data-wall-mode", "auto");
+    await expect(quote).not.toHaveAttribute("data-wall-labels", /.*/);
+    await page.locator("[data-download]").click();
+    await expect(page.locator("[data-print-ready]")).toBeVisible();
+    await expect(page.locator("[data-print-3d]")).toHaveAttribute("src", /^data:image\/png;base64,/);
+  });
+});

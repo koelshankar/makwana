@@ -168,6 +168,7 @@ export function ThreePanel() {
             onSelect={onSelect}
             performance={performance}
             onSlowFrames={performance || autoSwitched ? undefined : onSlowFrames}
+            wallLabels={!customer}
           />
 
           {!customer && (notPlaced || selected) && (

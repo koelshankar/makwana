@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { catalogue } from "./catalogue";
-import { boxesIntersect, wallBoxToWorld, wallFrame } from "./geometry";
+import { boxesIntersect, roomOutline, wallBoxToWorld, wallFrame, worldToWall } from "./geometry";
+import { rectInsidePolygon } from "./room-validation";
 import { emptyMehta, sampleDesign } from "./seed";
 import { unit } from "./testing";
 import {
@@ -13,7 +14,9 @@ import {
   roomModel,
   unitParts,
   wallHeight,
+  wallLabelSpots,
   wallsInFront,
+  WALL_LABEL_DEPTH_MM,
   type BoxPart,
   type Front,
   type Part,
@@ -238,6 +241,40 @@ describe("auto wall mode", () => {
     const at = (deg: number) => ({ x: Math.cos((deg * Math.PI) / 180), y: Math.sin((deg * Math.PI) / 180) });
     expect(wallsInFront(one, at(80)), "80° off its normal: a glance").toEqual([]);
     expect(wallsInFront(one, at(60)), "60° off: looking through it").toEqual(["X"]);
+  });
+});
+
+describe("wallLabelSpots", () => {
+  const room = emptyMehta.room;
+  const spots = wallLabelSpots(room);
+  const floor = roomOutline(room, 0).inner;
+
+  it("one label per wall, A to H, in order", () => {
+    expect(spots.map((s) => s.wallId)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+  });
+
+  it("each sits at the middle of its wall's base, in front of the base run, inside the room", () => {
+    for (const s of spots) {
+      const f = wallFrame(room, s.wallId);
+      const local = worldToWall(f, s.at);
+      expect(local.offsetMm).toBeCloseTo(f.lengthMm / 2);
+      // Clear of the 600 mm countertop, except F: the duct side is 1000 mm from wall H, so halfway.
+      expect(local.depthMm).toBe(s.wallId === "F" ? 500 : WALL_LABEL_DEPTH_MM);
+      expect(s.normal).toEqual(f.n);
+      const r = { minX: s.at.x - 140, maxX: s.at.x + 140, minY: s.at.y - 140, maxY: s.at.y + 140 };
+      expect(rectInsidePolygon(r, floor), `label ${s.wallId} on the floor`).toBe(true);
+    }
+    expect(spots.find((s) => s.wallId === "A")!.at).toEqual({ x: 1600, y: 650 });
+  });
+
+  it("a shallow room puts the label halfway across", () => {
+    const narrow = { ...room, walls: [
+      { id: "A", lengthMm: 3000, heading: "E" as const },
+      { id: "B", lengthMm: 1000, heading: "S" as const },
+      { id: "C", lengthMm: 3000, heading: "W" as const },
+      { id: "D", lengthMm: 1000, heading: "N" as const },
+    ], features: [] };
+    expect(wallLabelSpots(narrow).find((s) => s.wallId === "A")!.at).toEqual({ x: 1500, y: 500 });
   });
 });
 

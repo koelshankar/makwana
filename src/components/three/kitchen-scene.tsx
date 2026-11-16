@@ -21,6 +21,7 @@ import { GhostBox, UnitOutline, type SceneGhost } from "./overlays";
 import { RoomMesh } from "./room-mesh";
 import { SceneEvents } from "./scene-boundary";
 import { ApplianceMesh, FittedMesh, UnitMesh, type Pose } from "./unit-mesh";
+import { WallLabels } from "./wall-labels";
 
 export type { SceneApi, ViewPreset } from "./camera-rig";
 export type { SceneGhost } from "./overlays";
@@ -126,10 +127,12 @@ export interface KitchenSceneProps {
   performance?: boolean;
   /** Called when frames stay slow while the view is being orbited (see CameraRig). */
   onSlowFrames?: () => void;
+  /** Wall letters on the floor: the Design view only (not Show customer, the Quote or the PDF). */
+  wallLabels?: boolean;
 }
 
 export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function KitchenScene(
-  { project, selectedId, blockedIds, wallHeight = "cut", activeWallId, interactive = true, subscribeGhost, onSelect, performance = false, onSlowFrames },
+  { project, selectedId, blockedIds, wallHeight = "cut", activeWallId, interactive = true, subscribeGhost, onSelect, performance = false, onSlowFrames, wallLabels = false },
   ref,
 ) {
   const frames = useMemo(() => new Map(wallFrames(project.room).map((f) => [f.wallId, f])), [project.room]);
@@ -202,6 +205,7 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
       <hemisphereLight args={["#ffffff", "#d6ccbe", 2.6]} />
       <directionalLight position={[-5, 8, 3]} intensity={1.5} />
       <RoomMesh room={project.room} mode={wallHeight} />
+      {wallLabels && <WallLabels room={project.room} />}
       {project.modules.map((p) => {
         const f = frames.get(p.wallId);
         return f ? <UnitMesh key={p.id} placement={p} hosted={hosted.get(p.id) ?? ""} pose={poseOf(f, p.offsetMm)} {...handlers} /> : null;
@@ -226,7 +230,7 @@ export const KitchenScene = forwardRef<SceneApi, KitchenSceneProps>(function Kit
       {interactive && selected && boxes.get(selected) && <UnitOutline box={boxes.get(selected)!} kind="selected" shell={!blockedIds.has(selected)} />}
       {hover && boxes.get(hover) && <UnitOutline box={boxes.get(hover)!} kind="hover" />}
       {subscribeGhost && <GhostBox subscribe={subscribeGhost} />}
-      <Invalidate deps={[project, selected, hover, blockedIds, wallHeight, interactive, performance, restores]} />
+      <Invalidate deps={[project, selected, hover, blockedIds, wallHeight, interactive, performance, restores, wallLabels]} />
       <CameraRig ref={ref} room={project.room} boxes={boxes} activeWallId={activeWallId} onSlowFrames={onSlowFrames} />
     </Canvas>
   );
