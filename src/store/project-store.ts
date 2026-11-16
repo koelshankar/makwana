@@ -13,7 +13,7 @@ import { closingHint, validateRoom } from "@/domain/room-validation";
 import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markPdfDownloaded, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
 import { isUsableProject } from "@/domain/project-validation";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
-import { nextWall, turnedTo, turnSubject, wallsThatFit, withNearestFreeFix, type Turnable } from "@/domain/turn";
+import { nextWall, turnedTo, turnSubject, wallsUnitFits, withNearestFreeFix, type Turnable } from "@/domain/turn";
 import type { WallHeightMode } from "@/domain/three-model";
 import type {
   AppliancePlacement,
@@ -653,7 +653,7 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             if (!subject) return { ok: false, id, results: [], reason: "nothing" };
             const wallId =
               typeof target === "string"
-                ? target !== subject.wallId && wallsThatFit(project, catalogue, subject).includes(target)
+                ? target !== subject.wallId && wallsUnitFits(project, catalogue, subject).includes(target)
                   ? target
                   : null
                 : nextWall(project, catalogue, subject, subject.wallId, target);

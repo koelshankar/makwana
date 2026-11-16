@@ -2,12 +2,13 @@
 //
 // A unit always stands with its back to a wall and faces into the room, so the wall it faces
 // from is its wall: turning it is moving it to another wall, a quarter turn (or half) about the
-// vertical. The model stays { wallId, layer, offsetMm }: no free angles. R, Shift+R and the
-// inspector's Wall picker all use this.
+// vertical. The model stays { wallId, layer, offsetMm }: no free angles. R, Shift+R, the
+// inspector's Wall picker and the Move button all use this, through wallsUnitFits and turnedTo.
 
 import { getAppliance, getModule } from "./catalogue";
 import { defaultBlindSide, findPlacement, isModulePlacement, placementToWorldBox, solidWalls, wallFrame, worldToWall } from "./geometry";
 import { checkPlacementFast } from "./rules";
+import { snapTargets } from "./snapping";
 import type { Catalogue, CheckResult, FixAction, FreeAppliancePlacement, ModulePlacement, Project } from "./types";
 
 /** Something with its own place on a wall: a unit or a free appliance (chimney, dishwasher, fridge space). */
@@ -26,11 +27,23 @@ export function turnSubject(project: Project, id: string): Turnable | null {
   return project.modules.find((m) => m.id === p.hostPlacementId) ?? null;
 }
 
-/** Standing walls the unit fits on (as long as it is wide), in chain order. Open segments never count. */
-export function wallsThatFit(project: Project, cat: Catalogue, p: Turnable): string[] {
+/**
+ * The one fit check for moving a unit to another wall: the standing walls (open segments never
+ * count) that have at least one spot where the unit isn't blocked, in chain order. "Not blocked"
+ * is checkPlacementFast, the placement rules every drop and turn runs: inside the wall, no overlap
+ * in the unit's height band (units on this wall and round the corners, columns, doors), clear of
+ * windows, beams and the ceiling. The unit's own wall always counts.
+ *
+ * R / Shift+R (nextWall), the Wall picker, the Move button and turnPlacement all use this list.
+ */
+export function wallsUnitFits(project: Project, cat: Catalogue, p: Turnable): string[] {
   const w = turnWidth(p, cat);
   return solidWalls(project.room)
-    .filter((wall) => wall.lengthMm >= w)
+    .filter(
+      (wall) =>
+        wall.id === p.wallId ||
+        (wall.lengthMm >= w && nearestFreeOffset(project, cat, p, wall.id, turnedTo(project, cat, p, wall.id).offsetMm) !== null),
+    )
     .map((wall) => wall.id);
 }
 
@@ -39,7 +52,7 @@ export function wallsThatFit(project: Project, cat: Catalogue, p: Turnable): str
  * walls the unit fits on. Null when no other wall fits.
  */
 export function nextWall(project: Project, cat: Catalogue, p: Turnable, fromWallId: string, dir: 1 | -1): string | null {
-  const fits = wallsThatFit(project, cat, p);
+  const fits = wallsUnitFits(project, cat, p);
   const order = solidWalls(project.room).map((w) => w.id);
   const at = order.indexOf(fromWallId);
   for (let k = 1; k <= order.length; k++) {
@@ -68,7 +81,11 @@ export function turnedTo(project: Project, cat: Catalogue, p: Turnable, wallId: 
   return moved;
 }
 
-/** The free offset on `wallId` nearest to `preferred` (10 mm steps, and the far end), or null if none. */
+/**
+ * The free offset on `wallId` nearest to `preferred`, or null if none. It tries 10 mm steps, the
+ * far end, and flush against each thing already in the unit's band on that wall, so a gap exactly
+ * as wide as the unit is found even when it doesn't start on a 10 mm step.
+ */
 export function nearestFreeOffset(project: Project, cat: Catalogue, p: Turnable, wallId: string, preferred: number): number | null {
   const wall = solidWalls(project.room).find((x) => x.id === wallId);
   const w = turnWidth(p, cat);
@@ -76,6 +93,9 @@ export function nearestFreeOffset(project: Project, cat: Catalogue, p: Turnable,
   const max = wall.lengthMm - w;
   const candidates = new Set<number>([max]);
   for (let o = 0; o <= max; o += 10) candidates.add(o);
+  for (const [a0, a1] of snapTargets(project, cat, wallId, p.layer, p.id).occupied) {
+    for (const o of [Math.round(a1), Math.round(a0 - w)]) if (o >= 0 && o <= max) candidates.add(o);
+  }
   const sorted = [...candidates].sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred) || a - b);
   for (const offsetMm of sorted) {
     if (checkPlacementFast(project, cat, { ...p, wallId, offsetMm }).status === "pass") return offsetMm;

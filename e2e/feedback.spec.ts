@@ -339,11 +339,11 @@ test.describe("Feedback 1 · item 2: choose which wall a unit faces", () => {
     await expect(page.locator("[data-turn-hint]")).toHaveCount(0);
   });
 
-  test("after placing: R, Shift+R and the turn button; blocked shows the card; undo and redo", async ({ page }) => {
+  test("after placing: R, Shift+R and Move; blocked shows the card; undo and redo", async ({ page }) => {
     await toDesign(page);
     await dragB600(page);
     expect(await b600(page)).toMatchObject({ wallId: "A", offsetMm: 2600 });
-    await expect(page.locator("[data-turn-button]")).toBeVisible();
+    await expect(page.locator("[data-move-button]")).toBeVisible();
 
     // R: the next wall, in the same (A/B) corner.
     await page.keyboard.press("r");
@@ -367,9 +367,10 @@ test.describe("Feedback 1 · item 2: choose which wall a unit faces", () => {
     await fixes.first().click();
     await expect.poll(() => b600(page)).toMatchObject({ wallId: "H", offsetMm: 1500 });
 
-    // The turn button on the selected unit does what R does: from H 1500 the next wall is A, where
-    // the projected spot (A 0) is the column's: blocked again, and the first fix finds A 300.
-    await page.locator("[data-turn-button]").click();
+    // Move to Wall A does what R does: from H 1500 the next wall is A, where the projected spot
+    // (A 0) is the column's: blocked again, and the first fix finds A 300.
+    await page.locator("[data-move-button]").click();
+    await page.locator('[data-move-menu] [data-move-wall="A"]').click();
     await expect(card).toBeVisible();
     await expect(fixes.first()).toHaveText("Move to nearest free spot on Wall A");
     await fixes.first().click();
@@ -381,8 +382,8 @@ test.describe("Feedback 1 · item 2: choose which wall a unit faces", () => {
     await dragB600(page);
     const inspector = page.getByRole("complementary", { name: "Inspector" });
     await inspector.getByRole("combobox", { name: "Wall" }).click();
-    // Not D or F (450 mm): too short for a 600 mm unit.
-    await expect(page.getByRole("option")).toHaveText(["Wall A", "Wall B", "Wall C", "Wall E", "Wall G", "Wall H"]);
+    // Not D or F (450 mm): too short for a 600 mm unit. Not G: the door on H takes its only spot.
+    await expect(page.getByRole("option")).toHaveText(["Wall A", "Wall B", "Wall C", "Wall E", "Wall H"]);
     await page.getByRole("option", { name: "Wall B" }).click();
     await expect.poll(() => b600(page)).toMatchObject({ wallId: "B", offsetMm: 0 });
     await inspector.getByRole("button", { name: "Turn to the next wall" }).click();
@@ -406,5 +407,61 @@ test.describe("Feedback 1 · item 2: choose which wall a unit faces", () => {
     await page.keyboard.press("r");
     await expect(page.getByText("No other wall fits B600 (3200 mm)")).toBeVisible();
     expect((await savedModules(page))[0]).toMatchObject({ wallId: "A", offsetMm: 0 });
+    // Move says so too, with no list.
+    await page.locator('[data-move-button="wide"]').click();
+    await expect(page.locator("[data-move-none]")).toHaveText("No other wall has space");
+    await expect(page.locator("[data-move-wall]")).toHaveCount(0);
+  });
+});
+
+test.describe("Feedback 2 · item 3: the Move button", () => {
+  const savedB600 = (page: Page) =>
+    page.evaluate(() => JSON.parse(localStorage.getItem("makwana:project")!).state.project.modules.find((m: { moduleCode: string }) => m.moduleCode === "B600"));
+
+  test("select a unit, Move, pick a wall: the unit is on that wall and the quote follows", async ({ page }) => {
+    await open(page, "/setup");
+    await resetDemo(page);
+    await page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem("makwana:project")!);
+      saved.state.project.modules = [
+        { id: "u1", moduleCode: "B600", wallId: "A", layer: "base", offsetMm: 2600, widthMm: 600, carcassId: "bwp", finishId: "matte-sage", shutterTypeId: "standard", hardware: [], isCustomSize: false },
+      ];
+      localStorage.setItem("makwana:project", JSON.stringify(saved));
+    });
+    await page.reload();
+    await stepper(page, "Design").click();
+    await page.locator('[data-elevation="A"] [data-unit="u1"]').click({ position: { x: 20, y: 30 } });
+
+    // The round turn button is gone; Move is there.
+    await expect(page.locator("[data-turn-button]")).toHaveCount(0);
+    const move = page.locator('[data-move-button="u1"]');
+    await expect(move).toBeVisible();
+    await move.click();
+
+    // The walls it fits on, the same list as the inspector's Wall picker; its own wall can't be picked.
+    const menu = page.locator("[data-move-menu]");
+    const walls = menu.locator("[data-move-wall]");
+    await expect(walls).toHaveCount(5);
+    expect(await walls.evaluateAll((els) => els.map((e) => e.getAttribute("data-move-wall")))).toEqual(["A", "B", "C", "E", "H"]);
+    await expect(menu.locator('[data-move-wall="A"]')).toBeDisabled();
+    await expect(menu.locator('[data-move-wall="A"]')).toContainText("Current");
+    await page.screenshot({ path: test.info().outputPath("move-list.png") });
+
+    // Esc closes the list and keeps the unit selected.
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(move).toBeVisible();
+
+    await move.click();
+    await menu.locator('[data-move-wall="C"]').click();
+    await expect(menu).toHaveCount(0);
+    await expect.poll(() => savedB600(page)).toMatchObject({ id: "u1", wallId: "C" });
+    await expect(page.locator('[data-elevation="C"]')).toBeVisible();
+    await expect(page.locator('[data-move-button="u1"]')).toBeVisible();
+
+    // The quote shows it on Wall C.
+    await stepper(page, "Quote").click();
+    await expect(page.locator("[data-quote-line]").filter({ hasText: "B600" })).toContainText("Wall C");
+    await expect(page.getByText("Units on Wall C")).toBeVisible();
   });
 });

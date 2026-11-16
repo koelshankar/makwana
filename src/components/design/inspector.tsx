@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Check, CookingPot, GalleryVerticalEnd, Grip, Hand, Plus, RotateCw, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -9,7 +10,7 @@ import { formatINR } from "@/domain/format";
 import { addOnTotal, appliancePrice, cutOutPrice, moduleLine } from "@/domain/pricing";
 import { validShutterTypes } from "@/domain/rules/product";
 import type { AppliancePlacement, BlindSide, HardwareSelection, ModulePlacement } from "@/domain/types";
-import { wallsThatFit } from "@/domain/turn";
+import { wallsUnitFits } from "@/domain/turn";
 import { cn } from "@/lib/utils";
 import { projectStore, useProjectStore } from "@/store/project-store";
 import { turnSelected } from "./commit";
@@ -73,12 +74,13 @@ function size(p: ModulePlacement) {
 }
 
 /**
- * The wall a unit or free appliance faces from: a picker of the walls it fits on and a turn
- * button (R). Both turn it the same way: the projected position first, the Blocked card if blocked.
+ * The wall a unit or free appliance faces from: a picker of the walls it fits on (wallsUnitFits,
+ * the same list as the elevation's Move button) and a turn button (R). Both turn it the same way:
+ * the projected position first, the Blocked card if blocked.
  */
 function WallPicker({ p }: { p: ModulePlacement | Extract<AppliancePlacement, { kind: "free" }> }) {
   const project = useProjectStore((s) => s.project);
-  const walls = wallsThatFit(project, catalogue, p);
+  const walls = useMemo(() => wallsUnitFits(project, catalogue, p), [project, p]);
   return (
     <span className="flex items-center gap-1.5">
       <InlineSelect

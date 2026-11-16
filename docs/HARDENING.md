@@ -232,7 +232,7 @@ Branch: `feedback-1` (continued). One commit per item. Not merged.
 
 | Item | Status | Commit |
 |---|---|---|
-| 2 Remove the 3D wall labels | Done | see `git log` |
+| 2 Remove the 3D wall labels | Done | `8b52877` |
 | 3 Move button replaces the round turn button | Done | see `git log` |
 | 1 Start a new wall from the end of any wall | Plan only: `docs/PLAN-wall-start.md` | — |
 | 4 Inside-corner door clash rule | Plan only: `docs/PLAN-wall-start.md` | — |
@@ -244,3 +244,23 @@ Branch: `feedback-1` (continued). One commit per item. Not merged.
 - **Kept.** The 2D labels: the Room Setup plan's wall letters and lengths, the Design plan, elevation titles and wall tabs. The 3D unit code sprites (`unit-mesh.tsx`) are unit labels, not wall labels, and stay.
 - **Tests.** Removed the `wallLabelSpots` unit tests and the Feedback 1, item 4 e2e test. The full-screen e2e no longer expects `data-wall-labels` on the 3D canvas. Nothing else referred to them (`grep -ri "wall.\?label" src e2e` finds only the Room Setup list's own wall label field).
 - **Checks.** `npm test` 216/216 (219 less the three label tests), `tsc` and `lint` clean, build passes (`/design` 343 kB, `/quote` 311 kB, `/setup` 308 kB, shared 235 kB). `npm run e2e`: 62 passed, 2 skipped (automatic performance mode), across both sizes: 64 less the label test at each size.
+
+## Item 3: Move button replaces the round turn button
+
+- **UI.** The round turn button above the selected unit in the elevation is gone. In its place is a "Move" pill (`src/components/design/elevation/move-button.tsx`, `data-move-button`). It opens a list (`data-move-menu`) titled "Move B600 to" with the walls the unit fits on, in A→Z order and with their lengths. The unit's own wall is shown as "Current" and is disabled. When no other wall fits, the list says "No other wall has space" (`data-move-none`) and shows no walls. Esc closes the list and keeps the unit selected. A fitted appliance moves its host, as R does.
+- **One fit check.** `wallsUnitFits(project, catalogue, unit)` in `src/domain/turn.ts` (renamed from `wallsThatFit`) is the only one. R / Shift+R (`nextWall`), the inspector's Wall picker, the Move list and `turnPlacement`'s check of a chosen wall all call it. A wall fits if it is a standing wall (not an open segment) and has at least one spot where `checkPlacementFast` passes. That is the same set of placement rules every drop and turn runs: inside the wall, no overlap in the unit's height band (units on this wall and round the corners, the column, doors), clear of windows, the beam and the ceiling, plus the sink/hob rules. The unit's own wall always counts. No new rule was written.
+- **One placement.** Picking a wall calls `turnSelected(id, wallId)`, the same call as the Wall picker, so it goes through `turnPlacement` and `turnedTo`. The unit lands at its footprint centre projected onto that wall. If that spot is blocked, the Blocked card leads with "Move to nearest free spot on Wall X".
+- **Behaviour change (decision).** The fit check used to be "the wall is at least as long as the unit". It now also needs a free spot. Reason: the brief defines "fits" as free run length with no clash, and the old check offered walls where every spot was blocked. Such a wall gave a Blocked card with no "nearest free spot" fix. Effects, all in R / Shift+R and the Wall picker as well as Move:
+  - In the empty Mehta room a base unit is no longer offered Wall G (1000 mm): every spot on G runs in front of the door on H.
+  - In the sample design B is full for base units, so R on HU900 goes A → C, not A → B.
+  - SU900 with its sink fits only on A (the sink must stay near the plumbing). R on it now shows "No other wall fits SU900 (900 mm)" instead of a Blocked card on B.
+- **Finding a gap.** `nearestFreeOffset` used to try 10 mm steps and the far end only. It now also tries flush against each thing already in the unit's band on that wall. Otherwise a gap exactly the unit's width that doesn't start on a 10 mm step (e.g. 605–1205 for a 600) was reported as no space.
+- **Toast for a chosen wall with no spot.** `turnSelected` now says "No free spot for B600 on Wall C" when the wall is long enough but full, and "B600 (600 mm) doesn't fit on Wall D (450 mm)" when it is too short. The list never offers such a wall, so this toast is only reachable if the project changes under the list.
+- **Bug found while testing.** The list is portalled to `<body>`, but React events still bubble through the React tree into the elevation `<svg>`. Its pointer handlers started a pan on the list's pointerdown and deselected the unit on pointerup, so a pick did nothing. The popup now stops pointer and wheel events.
+- **Cost.** `wallsUnitFits` takes about 5–16 ms per unit on the sample design. It runs only when the list opens, when R is pressed, and (memoised on the project) in the inspector.
+- **Kept.** R / Shift+R (while dragging and after placing), the inspector's Wall picker and its square turn button.
+- **Tests.**
+  - Unit (`turn.test.ts`): a long-enough wall with no free spot isn't offered, but a wall unit still gets it (height band); an exact off-grid gap is found (C 605); its own wall always counts and open segments never do; the G/door case.
+  - Store (`project-store.test.ts`): for every unit in the sample design, R and Shift+R give exactly the same result and project as picking that wall. Every listed wall either places the unit or gives the Blocked card leading with that wall's nearest free spot, and both outcomes occur. Walls not on the list are refused with `no-wall`. The fitted hob turns its unit to C; the fitted sink's unit has nowhere else to go.
+  - e2e (`e2e/feedback.spec.ts`, "Feedback 2 · item 3"): no round button; Move lists A (Current, disabled), B, C, E, H; Esc closes it and keeps the selection; pick C: the save has the unit on C, elevation C shows, and the Quote line and layout read Wall C. The Feedback 1 item 2 tests now use Move → Wall A where they used the turn button (blocked at the column, fix to A 300); the picker no longer offers G; the 3200 mm unit's Move says "No other wall has space".
+- **Checks.** `npm test` 223/223, `tsc` and `lint` clean, build passes (`/design` 344 kB, `/quote` 311 kB, `/setup` 309 kB, shared 235 kB). `npm run e2e`: 64 passed, 2 skipped (automatic performance mode), across both sizes.

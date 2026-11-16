@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { catalogue } from "@/domain/catalogue";
 import { placementsOnWall, wallFrame } from "@/domain/geometry";
+import { nearestFreeLabel, nextWall, wallsUnitFits } from "@/domain/turn";
 import { unitPose } from "@/domain/three-model";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import { unit } from "@/domain/testing";
@@ -503,11 +505,17 @@ describe("turning a unit to face another wall (Feedback 1, item 2)", () => {
     expect(store.getState().project).toBe(before);
   });
 
-  it("a fitted sink turns its sink unit, and goes with it", () => {
+  it("a fitted hob turns its hob unit, and goes with it", () => {
     const store = createProjectStore(sampleDesign);
-    const res = store.getState().turnPlacement("a-sink", 1);
-    expect(res.id).toBe("m-sink");
-    expect(res.candidate?.wallId).toBe("B");
+    const res = store.getState().turnPlacement("a-hob", 1);
+    expect(res.id).toBe("m-hob");
+    // B is full in the sample design, so the next wall with room is C.
+    expect(res.candidate?.wallId).toBe("C");
+  });
+
+  it("a fitted sink's unit has nowhere else to go: it must stay by the plumbing on A", () => {
+    const store = createProjectStore(sampleDesign);
+    expect(store.getState().turnPlacement("a-sink", 1)).toMatchObject({ ok: false, id: "m-sink", reason: "no-wall" });
   });
 
   it("a unit moved to another wall turns about the vertical only", () => {
@@ -519,6 +527,66 @@ describe("turning a unit to face another wall (Feedback 1, item 2)", () => {
     // A pose is position plus a yaw: nothing else to tip. A to B is a quarter turn.
     expect(Object.keys(pa).sort()).toEqual(["x", "y", "yaw"]);
     expect(Math.abs(Math.abs(pb.yaw - pa.yaw) - Math.PI / 2)).toBeLessThan(1e-9);
+  });
+});
+
+describe("Move, the Wall picker and R / Shift+R agree (Feedback 2, item 3)", () => {
+  // The Move button and the Wall picker both call turnPlacement(id, wallId) with a wall from
+  // wallsUnitFits; R and Shift+R call turnPlacement(id, 1 | -1). Every unit in the sample design.
+  const subjects = sampleDesign.modules.map((m) => m.id);
+  const turned = (id: string, target: 1 | -1 | string) => {
+    const store = createProjectStore(sampleDesign);
+    const res = store.getState().turnPlacement(id, target);
+    const { modules, appliances } = store.getState().project;
+    return { res, modules, appliances };
+  };
+
+  it("R / Shift+R give exactly what picking that wall gives", () => {
+    for (const id of subjects) {
+      const m = sampleDesign.modules.find((x) => x.id === id)!;
+      const fits = wallsUnitFits(sampleDesign, catalogue, m);
+      for (const dir of [1, -1] as const) {
+        const next = nextWall(sampleDesign, catalogue, m, m.wallId, dir);
+        const byKey = turned(id, dir);
+        if (!next) {
+          expect(fits, `${id}: nothing else fits`).toEqual([m.wallId]);
+          expect(byKey.res).toMatchObject({ ok: false, reason: "no-wall" });
+          continue;
+        }
+        expect(fits, `${id} ${dir}`).toContain(next);
+        expect(turned(id, next), `${id} R ${dir} vs Wall ${next}`).toEqual(byKey);
+      }
+    }
+  });
+
+  it("every wall on the list can be picked: placed, or the Blocked card leading with the nearest free spot there", () => {
+    let placed = 0;
+    let blocked = 0;
+    for (const id of subjects) {
+      const m = sampleDesign.modules.find((x) => x.id === id)!;
+      for (const wallId of wallsUnitFits(sampleDesign, catalogue, m).filter((w) => w !== m.wallId)) {
+        const { res, modules } = turned(id, wallId);
+        expect(res.reason, `${id} → ${wallId}`).toBeUndefined();
+        expect(res.candidate?.wallId).toBe(wallId);
+        if (res.ok) {
+          placed++;
+          expect(modules.find((x) => x.id === id)?.wallId).toBe(wallId);
+        } else {
+          blocked++;
+          expect(res.results.find((r) => r.status === "blocked")!.fixes[0].label).toBe(nearestFreeLabel(wallId));
+          expect(modules).toBe(sampleDesign.modules);
+        }
+      }
+    }
+    // Both outcomes happen in the sample design.
+    expect(placed).toBeGreaterThan(0);
+    expect(blocked).toBeGreaterThan(0);
+  });
+
+  it("a wall that isn't on the list is refused the same way by every path", () => {
+    // HU900 (m-hob) fits A, C and H in the sample design, not B (full) or the short duct walls.
+    expect(wallsUnitFits(sampleDesign, catalogue, sampleDesign.modules.find((x) => x.id === "m-hob")!)).toEqual(["A", "C", "H"]);
+    for (const wallId of ["B", "D", "E", "F", "G"]) expect(turned("m-hob", wallId).res).toMatchObject({ ok: false, reason: "no-wall" });
   });
 });
 

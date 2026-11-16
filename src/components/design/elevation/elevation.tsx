@@ -8,12 +8,12 @@ import type { Placement } from "@/domain/types";
 import { ZONES } from "@/domain/zones";
 import { mm } from "@/lib/room-format";
 import { projectStore, useBlockedIds, useProjectStore } from "@/store/project-store";
-import { RotateCw } from "lucide-react";
 import { turnSubject } from "@/domain/turn";
-import { commitGhost, turnSelected } from "../commit";
+import { commitGhost } from "../commit";
 import { dragPlacement, ghostAt, snappedGhost, validHosts, widthOf, type WallPlaced } from "../ghost";
 import { useInteraction, type ClientPoint, type DragItem, type ElevationApi, type Ghost } from "../interaction";
 import { elevationModel, layerBand, type ElevUnit } from "./elevation-model";
+import { MoveButton } from "./move-button";
 
 const C = {
   ink: "var(--mk-ink)",
@@ -475,8 +475,8 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
     ) : null;
 
   const sel = model.units.find((u) => u.id === selectedId);
-  const turnId = selectedId ? turnSubject(project, selectedId)?.id : undefined;
-  const turning = turnId ? model.units.find((u) => u.id === turnId) : undefined;
+  const moveId = selectedId ? turnSubject(project, selectedId)?.id : undefined;
+  const mover = moveId ? model.units.find((u) => u.id === moveId) : undefined;
   const vDim = (x: number, z0: number, z1: number, label: string, key: string) => (
     <g key={key} pointerEvents="none">
       <line x1={x} y1={Y(z0)} x2={x} y2={Y(z1)} stroke={C.ink2} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
@@ -703,29 +703,8 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
         {vDim(length + font(18), 0, ZONES.countertop.top, mm(ZONES.countertop.top), "ctr")}
         {vDim(length + font(46), 0, ceiling, `CEILING ${mm(ceiling)}`, "ceil")}
 
-        {/* The selected unit's turn button: face the next wall (R). A fitted appliance turns its host. */}
-        {!print && !dragItem && turning && (() => {
-          const r = font(13);
-          const cxB = turning.x1 - font(16);
-          const cyB = Y(turning.z1) - font(18);
-          const go = () => turnSelected(selectedId!, 1);
-          return (
-            <g
-              role="button"
-              tabIndex={0}
-              aria-label="Turn to the next wall (R)"
-              data-turn-button={turning.id}
-              className="cursor-pointer"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={go}
-              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && go()}
-            >
-              <title>Turn to face the next wall (R) · Shift+R: the previous wall</title>
-              <circle cx={cxB} cy={cyB} r={r} fill={C.accent} />
-              <RotateCw x={cxB - r * 0.6} y={cyB - r * 0.6} width={r * 1.2} height={r * 1.2} color="white" strokeWidth={2.4} />
-            </g>
-          );
-        })()}
+        {/* The selected unit's Move button: a list of the walls it fits on. A fitted appliance moves its host. */}
+        {!print && !dragItem && mover && <MoveButton selectedId={selectedId!} right={mover.x1} bottom={Y(mover.z1) - font(6)} px={font} />}
       </svg>
     </div>
   );

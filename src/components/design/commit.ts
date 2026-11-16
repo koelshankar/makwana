@@ -69,7 +69,7 @@ function panelCentre(): ClientPoint {
 
 /**
  * Turns the selected unit to face the next (1) or previous (-1) wall, or a chosen wall (the Wall
- * picker): R, Shift+R, the turn button and the picker all come here. Placed: selected on its new
+ * picker, the Move button): R, Shift+R, the picker, its turn button and Move all come here. Placed: selected on its new
  * wall, with any warnings. Blocked: the Blocked card, on the wall it was turning to, leading with
  * "Move to nearest free spot on Wall X". No wall it fits on: a toast, and nothing moves.
  */
@@ -84,7 +84,11 @@ export function turnSelected(id: string, target: 1 | -1 | string) {
     const w = turnWidth(subject, catalogue);
     const wall = typeof target === "string" ? findWall(before.room, target) : undefined;
     toast(
-      wall ? `${name} (${w} mm) doesn't fit on Wall ${wall.id} (${wall.lengthMm} mm)` : `No other wall fits ${name} (${w} mm)`,
+      !wall
+        ? `No other wall fits ${name} (${w} mm)`
+        : wall.lengthMm < w
+          ? `${name} (${w} mm) doesn't fit on Wall ${wall.id} (${wall.lengthMm} mm)`
+          : `No free spot for ${name} on Wall ${wall.id}`,
       { id: "turn-no-wall", description: "It stays where it is." },
     );
     return;

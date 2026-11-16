@@ -3,7 +3,7 @@ import { catalogue } from "./catalogue";
 import { checkCandidate, hasBlocked } from "./rules";
 import { emptyMehta, sampleDesign } from "./seed";
 import { unit } from "./testing";
-import { nearestFreeLabel, nextWall, turnedTo, turnSubject, wallsThatFit, withNearestFreeFix } from "./turn";
+import { nearestFreeLabel, nearestFreeOffset, nextWall, turnedTo, turnSubject, wallsUnitFits, withNearestFreeFix } from "./turn";
 import type { Project } from "./types";
 
 const withUnits = (...modules: ReturnType<typeof unit>[]): Project => ({ ...emptyMehta, modules });
@@ -19,10 +19,11 @@ describe("which wall is next", () => {
     expect(nextWall(p, catalogue, b600, "H", 1)).toBe("A");
   });
 
-  it("skips walls too short for the unit (the 450 and 600 mm duct walls for a 900)", () => {
-    expect(wallsThatFit(p, catalogue, b900)).toEqual(["A", "B", "C", "G", "H"]);
-    expect(nextWall(p, catalogue, b900, "C", 1)).toBe("G");
-    expect(nextWall(p, catalogue, b900, "G", -1)).toBe("C");
+  it("skips walls too short for the unit (the 450 and 600 mm duct walls for a 900), and G, where the door takes the only spot", () => {
+    // G is 1000 mm, but a 900 at G 0 or 100 runs in front of the door on H (400–1200 mm from the corner).
+    expect(wallsUnitFits(p, catalogue, b900)).toEqual(["A", "B", "C", "H"]);
+    expect(nextWall(p, catalogue, b900, "C", 1)).toBe("H");
+    expect(nextWall(p, catalogue, b900, "H", -1)).toBe("C");
   });
 
   it("skips open segments", () => {
@@ -32,8 +33,33 @@ describe("which wall is next", () => {
 
   it("no other wall fits: null", () => {
     const wide = unit("u", "B600", "A", 0, 3200, "base", { isCustomSize: true });
-    expect(wallsThatFit(p, catalogue, wide)).toEqual(["A"]);
+    expect(wallsUnitFits(p, catalogue, wide)).toEqual(["A"]);
     expect(nextWall(p, catalogue, wide, "A", 1)).toBeNull();
+  });
+});
+
+describe("wallsUnitFits: the one fit check for Move, the Wall picker and R (Feedback 2, item 3)", () => {
+  const b600 = unit("u", "B600", "A", 2600, 600);
+
+  it("a wall long enough but with no free spot in the unit's band isn't offered; the band matters", () => {
+    // C (1600) has 1500 mm of base units: 100 mm left, too little for a 600.
+    const full = withUnits(b600, unit("c1", "B900", "C", 0, 900), unit("c2", "B600", "C", 900, 600));
+    expect(wallsUnitFits(full, catalogue, b600)).not.toContain("C");
+    expect(nextWall(full, catalogue, b600, "B", 1)).not.toBe("C");
+    // A wall unit uses another height band: C is still free for it.
+    expect(wallsUnitFits(full, catalogue, unit("w", "W600", "A", 1000, 600, "wall"))).toContain("C");
+  });
+
+  it("a gap exactly as wide as the unit counts, even off the 10 mm steps", () => {
+    const gap = withUnits(b600, unit("c1", "B600", "C", 0, 605, "base", { isCustomSize: true }), unit("c2", "B600", "C", 1205, 395, "base", { isCustomSize: true }));
+    expect(wallsUnitFits(gap, catalogue, b600)).toContain("C");
+    expect(nearestFreeOffset(gap, catalogue, b600, "C", 0)).toBe(605);
+  });
+
+  it("its own wall always counts; open segments never do", () => {
+    const gapB = { ...emptyMehta, modules: [b600], room: { ...emptyMehta.room, walls: emptyMehta.room.walls.map((w) => (w.id === "B" ? { ...w, open: true as const } : w)) } };
+    // Not B (open), D or F (450 mm), or G (the door on H takes its only spot for a base unit).
+    expect(wallsUnitFits(gapB, catalogue, b600)).toEqual(["A", "C", "E", "H"]);
   });
 });
 
