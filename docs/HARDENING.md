@@ -233,7 +233,7 @@ Branch: `feedback-1` (continued). One commit per item. Not merged.
 | Item | Status | Commit |
 |---|---|---|
 | 2 Remove the 3D wall labels | Done | `8b52877` |
-| 3 Move button replaces the round turn button | Done | see `git log` |
+| 3 Move button replaces the round turn button | Done | `a222088` |
 | 1 Start a new wall from the end of any wall | Plan only: `docs/PLAN-wall-start.md` | — |
 | 4 Inside-corner door clash rule | Plan only: `docs/PLAN-wall-start.md` | — |
 
@@ -264,3 +264,22 @@ Branch: `feedback-1` (continued). One commit per item. Not merged.
   - Store (`project-store.test.ts`): for every unit in the sample design, R and Shift+R give exactly the same result and project as picking that wall. Every listed wall either places the unit or gives the Blocked card leading with that wall's nearest free spot, and both outcomes occur. Walls not on the list are refused with `no-wall`. The fitted hob turns its unit to C; the fitted sink's unit has nowhere else to go.
   - e2e (`e2e/feedback.spec.ts`, "Feedback 2 · item 3"): no round button; Move lists A (Current, disabled), B, C, E, H; Esc closes it and keeps the selection; pick C: the save has the unit on C, elevation C shows, and the Quote line and layout read Wall C. The Feedback 1 item 2 tests now use Move → Wall A where they used the turn button (blocked at the column, fix to A 300); the picker no longer offers G; the 3200 mm unit's Move says "No other wall has space".
 - **Checks.** `npm test` 223/223, `tsc` and `lint` clean, build passes (`/design` 344 kB, `/quote` 311 kB, `/setup` 309 kB, shared 235 kB). `npm run e2e`: 64 passed, 2 skipped (automatic performance mode), across both sizes.
+
+## Items 1 and 4: plan only (`docs/PLAN-wall-start.md`)
+
+No code. The plan doc has the current model, the options, the effects, the UI, risks, estimates, tests and the open questions.
+
+- **Item 1, decision proposed.**
+  - Free ends only (chain ends and wall ends at a gap). No branches/T-junctions: they turn the room into a graph and would take weeks, not days.
+  - Storage stays one ordered list. A gap may carry its own offset (`gapMm`), and the room gets an optional start point, so every existing vertex stays put.
+  - Reason: Design, 3D, the quote and the PDF only ever run on one closed loop. The save change is additive, so there is no migration and nothing is discarded by `migrate`.
+  - About 3.5–4 days.
+- **Item 4, decisions proposed.**
+  - Cover both "front hidden behind the neighbour's side" and "fronts meeting at the corner (handles)", each with the fix that works for it.
+  - Blocked keeps its current meaning (can't be placed; one-click fix). It is not "DRAFT PDF only", because blocked already stops the Quote screen and the PDF entirely.
+  - Build `insideCorners` first, then item 4, then item 1.
+  - About 2–2.5 days once the questions are answered.
+- **Facts recorded.**
+  - There is no corner filler SKU. FIL is 1–100 mm, with its price worked out from area × finish rate, and it already shows in the quote and PDF.
+  - The repo has no handle clearance figure: it must come from Makwana.
+  - As planned, the rule would fire on the sample design and the main script at the A/B corner.
