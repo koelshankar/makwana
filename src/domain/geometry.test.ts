@@ -3,6 +3,7 @@ import { catalogue } from "./catalogue";
 import {
   boxesIntersect,
   countertopOutline,
+  insideCorners,
   isRoomClosed,
   placementToWorldBox,
   rectArea,
@@ -165,5 +166,33 @@ describe("countertopOutline", () => {
     expect(cutOuts.map((c) => c.applianceId).sort()).toEqual(["hob", "sink"]);
     const hob = cutOuts.find((c) => c.applianceId === "hob")!;
     expect(hob.rect).toEqual({ minX: 750 - 365, maxX: 750 + 365, minY: 300 - 215, maxY: 300 + 215 });
+  });
+});
+
+describe("insideCorners", () => {
+  it("lists the Mehta room's six inside corners in room order, skipping the duct box's outside corners", () => {
+    expect(insideCorners(emptyMehta.room).map((c) => `${c.fromWallId}${c.toWallId}`)).toEqual(["AB", "BC", "CD", "FG", "GH", "HA"]);
+    expect(insideCorners(emptyMehta.room)[0].point).toEqual({ x: 3200, y: 0 });
+  });
+
+  it("has no corner at an open segment, and no last-to-first corner while the chain is open", () => {
+    const gap = { ...emptyMehta.room, walls: emptyMehta.room.walls.map((w) => (w.id === "B" ? { ...w, open: true as const } : w)) };
+    expect(insideCorners(gap).map((c) => `${c.fromWallId}${c.toWallId}`)).toEqual(["CD", "FG", "GH", "HA"]);
+    const open = { ...emptyMehta.room, walls: emptyMehta.room.walls.slice(0, 3) };
+    expect(insideCorners(open).map((c) => `${c.fromWallId}${c.toWallId}`)).toEqual(["AB", "BC"]);
+  });
+
+  it("works for a room drawn counter-clockwise", () => {
+    const ccw: Room = {
+      walls: [
+        { id: "A", lengthMm: 2000, heading: "S" },
+        { id: "B", lengthMm: 3000, heading: "E" },
+        { id: "C", lengthMm: 2000, heading: "N" },
+        { id: "D", lengthMm: 3000, heading: "W" },
+      ],
+      ceilingHeightMm: 2700,
+      features: [],
+    };
+    expect(insideCorners(ccw).map((c) => `${c.fromWallId}${c.toWallId}`)).toEqual(["AB", "BC", "CD", "DA"]);
   });
 });

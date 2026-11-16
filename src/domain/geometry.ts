@@ -108,6 +108,36 @@ export function wallSegments(room: Room): WallSegment[] {
   });
 }
 
+/** Where two standing walls meet with the room on the inside of the turn. */
+export interface InsideCorner {
+  /** The wall that ends at the corner and the wall that starts there, in room order. */
+  fromWallId: string;
+  toWallId: string;
+  point: Point;
+}
+
+/**
+ * Inside corners: each pair of consecutive standing walls (no open segment between them) that turns
+ * towards the interior. The last-to-first corner counts once the chain is closed. Every rule about
+ * corners uses this, so a change to how walls join touches one function.
+ */
+export function insideCorners(room: Room): InsideCorner[] {
+  const segs = wallSegments(room);
+  const area = signedArea(room);
+  const closed = isChainClosed(room);
+  const out: InsideCorner[] = [];
+  for (let i = 0; i < segs.length; i++) {
+    if (i === segs.length - 1 && !closed) break;
+    const s1 = segs[i];
+    const s2 = segs[(i + 1) % segs.length];
+    if (s1.open || s2.open) continue; // no corner at an open segment
+    const turn = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x;
+    if (turn === 0 || Math.sign(turn) !== Math.sign(area)) continue; // straight on, or an outside corner
+    out.push({ fromWallId: s1.wallId, toWallId: s2.wallId, point: s1.end });
+  }
+  return out;
+}
+
 /**
  * Wall-local frame used by elevations and rules. `origin` is the wall's left end as seen
  * from inside the room and `u` points to the viewer's right, so offset 0 is always on the

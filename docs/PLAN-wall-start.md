@@ -4,6 +4,34 @@ Feedback 2, Part B. Plan only: no code has been written for either item. Branch 
 
 ---
 
+# Decisions 2026-11-16
+
+Answers to the open questions at the end of this doc. Build order: the `insideCorners` helper, then item 4, then item 1. After item 1, every item 4 test runs again, plus one test where a wall drawn from a clicked free end makes the inside corner. One commit per item, all gates before each commit (`npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run e2e` with the 2 known skips). Not merged to `main`.
+
+**Item 4: inside-corner door clash**
+- **Two cases, two fixes.**
+  - **a) Hidden front** (part of a front sits behind a neighbour's side): **Blocked** for every unit type. The Blocked card's fix is "Move clear of corner": the unit moves along its wall until its front is clear, if a valid spot exists. If none exists there is no fix button, and the message says why.
+  - **b) Handle clash** (two fronts meet at the corner): **Blocked** if either unit is tall; **Warning** for base or wall units. Fix: "Add corner filler", the existing "Filler panel" (FIL) at the clearance width; the unit moves along its wall by that width. If the wall has no room, there is no fix button, and the message says why.
+- **Blocked keeps its meaning**: it can't be placed, and it hides the quote and the PDF. No new severity.
+- **Height bands decide clashes.** Same band clashes; lofts follow the same rule (loft with loft); tall clashes with every band. Base next to a wall unit doesn't clash.
+- **Clearance**: one config constant per handle type (with handle, handleless), 50 mm for both by default, marked "TO CONFIRM WITH MAKWANA" in the code and in `HARDENING.md`'s open items. No new "Corner filler" SKU.
+- **The old corner rule** is merged into the new one (case a); no unit gets two messages for the same corner.
+- **Sample design**: the A/B corner (BD600/BC1000, W900/W600) is fixed in the seed so the sample is clean.
+- **Demo script and brief**: one new step: make a corner clash, see the warning, click "Add corner filler", the quote shows the filler.
+- **e2e**: case a) blocked and fixed; case b) tall blocked; case b) base warning and fixed; base next to a wall unit at a corner: no clash.
+
+**Item 1: start a wall from any free end**
+- **Free ends only.** No branches or T-junctions.
+- **Joining**: a new wall joins another only when it exactly closes its own gap (it ends on the gap's other free end). In every other case it stays open.
+- **Order**: tabs and lists follow room order (A B C J D…), not alphabetical. Walls are not renamed.
+- **Default start** with no click: the first free end in room order (today's behaviour).
+- **Old saves** load with no migration. A test loads a project saved before this change.
+- **e2e**: click a free end and draw: the wall starts there; click a joined end: nothing happens; close a gap exactly: the walls join.
+
+**Kept**: the inspector's square turn button.
+
+---
+
 # Item 1: Start a new wall from the end of any wall (by click)
 
 ## 1. The current model

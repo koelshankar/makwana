@@ -117,6 +117,7 @@ Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs
 
 - Section 7 still needs a person for: WebGL off (Chrome restart), automatic performance mode on a slow machine, the native print dialog and saved PDF, real full screen, and the icon's look.
 - #1: install, build and run `npm start` once offline on the demo laptop.
+- **TO CONFIRM WITH MAKWANA**: the corner handle clearance (Feedback 2, item 4). `CORNER_CLEARANCE_MM` in `src/domain/rules/corner.ts` is 50 mm for "Standard with handle" and 50 mm for "Handleless profile". Both are placeholders, not from Makwana's hardware spec. The corner filler uses the existing FIL "Filler panel" (1–100 mm), so a figure over 100 mm needs a change.
 - Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
 
 ## Decisions
@@ -283,3 +284,22 @@ No code. The plan doc has the current model, the options, the effects, the UI, r
   - There is no corner filler SKU. FIL is 1–100 mm, with its price worked out from area × finish rate, and it already shows in the quote and PDF.
   - The repo has no handle clearance figure: it must come from Makwana.
   - As planned, the rule would fire on the sample design and the main script at the A/B corner.
+
+## Decisions 2026-11-16
+
+Also written into `docs/PLAN-wall-start.md` ("Decisions 2026-11-16"). Build order: the `insideCorners` helper, item 4, item 1. One commit per item; every gate before each commit. Not merged.
+
+- **Item 4.**
+  - Case a), a hidden front (part of a front behind a neighbour's side): Blocked for every unit type. Fix "Move clear of corner"; no button, and the reason in the message, when no spot exists.
+  - Case b), a handle clash (two fronts meet at the corner): Blocked if either unit is tall, a Warning for base and wall units. Fix "Add corner filler": a FIL "Filler panel" at the clearance width, and the unit moves along its wall by that width. No button, and the reason, when the wall has no room.
+  - Blocked keeps its meaning (can't be placed; hides the quote and the PDF). No new severity.
+  - Height bands decide clashes: same band, loft with loft, tall with every band. Base next to a wall unit doesn't clash.
+  - Clearance: one constant per handle type, 50 mm each, **TO CONFIRM WITH MAKWANA** (open items). No new "Corner filler" SKU.
+  - The old corner rule merges into case a): one message per unit per corner.
+  - The sample design's A/B corner is fixed so the sample is clean. The demo script and the brief gain one step: make a clash, see the warning, "Add corner filler", the quote shows the filler.
+- **Item 1.**
+  - Free ends only, no branches. A new wall joins only when it exactly closes its own gap; otherwise it stays open.
+  - Tabs and lists in room order (A B C J D…), not alphabetical; walls are not renamed.
+  - No click: the first free end in room order (today's behaviour).
+  - Old saves load with no migration; a test loads a save from before the change.
+- **Kept**: the inspector's square turn button.
