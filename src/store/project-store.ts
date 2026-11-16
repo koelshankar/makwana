@@ -13,6 +13,7 @@ import { closingHint, validateRoom } from "@/domain/room-validation";
 import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markPdfDownloaded, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
 import { isUsableProject } from "@/domain/project-validation";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
+import { nextWall, turnedTo, turnSubject, wallsThatFit, withNearestFreeFix, type Turnable } from "@/domain/turn";
 import type { WallHeightMode } from "@/domain/three-model";
 import type {
   AppliancePlacement,
@@ -43,6 +44,14 @@ export interface PlaceResult {
   ok: boolean;
   id: string;
   results: CheckResult[];
+}
+
+/** A turn to another wall (R, Shift+R, the Wall picker). */
+export interface TurnResult extends PlaceResult {
+  /** The unit as turned (on its new wall), when there was a wall to turn to. */
+  candidate?: Turnable;
+  /** `nothing`: no unit or free appliance to turn; `no-wall`: no other standing wall it fits on. */
+  reason?: "nothing" | "no-wall";
 }
 
 export const HISTORY_LIMIT = 50;
@@ -177,6 +186,13 @@ export interface ProjectState {
   placeWithFix: (candidate: NewPlacement, fix: Fix) => PlaceResult;
   /** Same behaviour as tryPlaceModule. Fitted appliances move with their host. */
   movePlacement: (id: string, wallId: string, offsetMm: number) => PlaceResult;
+  /**
+   * Turns a unit (or free appliance; a fitted appliance turns its host) to face from another wall:
+   * the next (1) or previous (-1) wall it fits on, or a given wall. It goes to its footprint centre
+   * projected onto that wall. Runs the normal checks: commits as one undoable step, or returns the
+   * blocked results with "Move to nearest free spot on Wall X" as the first fix.
+   */
+  turnPlacement: (id: string, target: 1 | -1 | string) => TurnResult;
   /** Finish, shutter, hardware and blind side. Returns false if a hardware item isn't allowed on the module. */
   updatePlacement: (id: string, patch: PlacementPatch) => boolean;
   removePlacement: (id: string) => void;
@@ -614,6 +630,9 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             const app = project.appliances.find((a) => a.id === id);
             const moved = mod ? { ...mod, wallId, offsetMm } : app?.kind === "free" ? { ...app, wallId, offsetMm } : undefined;
             if (!moved) return { ok: false, id, results: [] };
+            // On another wall a blind corner unit's blind side faces that wall's nearer end.
+            const blindSide = mod && mod.wallId !== wallId && mod.blindSide ? defaultBlindSide(project.room, wallId, offsetMm, mod.widthMm) : undefined;
+            if (blindSide) (moved as ModulePlacement).blindSide = blindSide;
             const results = checkCandidate(project, catalogue, moved);
             const ok = !hasBlocked(results);
             if (ok) {
@@ -622,10 +641,32 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
                 if (target && "offsetMm" in target) {
                   target.wallId = wallId;
                   target.offsetMm = offsetMm;
+                  if (blindSide && "moduleCode" in target) target.blindSide = blindSide;
                 }
               });
             }
             return { ok, id, results };
+          },
+          turnPlacement: (id, target) => {
+            const { project } = get();
+            const subject = turnSubject(project, id);
+            if (!subject) return { ok: false, id, results: [], reason: "nothing" };
+            const wallId =
+              typeof target === "string"
+                ? target !== subject.wallId && wallsThatFit(project, catalogue, subject).includes(target)
+                  ? target
+                  : null
+                : nextWall(project, catalogue, subject, subject.wallId, target);
+            if (!wallId) return { ok: false, id: subject.id, results: [], reason: "no-wall" };
+            const turned = turnedTo(project, catalogue, subject, wallId);
+            const results = checkCandidate(project, catalogue, turned);
+            if (hasBlocked(results)) return { ok: false, id: subject.id, results: withNearestFreeFix(project, catalogue, turned, results), candidate: turned };
+            edit((p) => {
+              const list: Turnable[] = isModulePlacement(turned) ? p.modules : (p.appliances as Turnable[]);
+              const i = list.findIndex((x) => x.id === turned.id);
+              if (i >= 0) list[i] = turned;
+            });
+            return { ok: true, id: subject.id, results, candidate: turned };
           },
           updatePlacement: (id, patch) => {
             const mod = get().project.modules.find((m) => m.id === id);

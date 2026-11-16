@@ -10,8 +10,8 @@ import { forwardRef, memo, useCallback, useContext, useEffect, useMemo, useRef, 
 import * as THREE from "three";
 import { catalogue } from "@/domain/catalogue";
 import { inheritedFinish } from "@/domain/finish-defaults";
-import { roomOutline, wallFrames, wallToWorld, type WallFrame } from "@/domain/geometry";
-import { countertopModel, type WallHeightMode } from "@/domain/three-model";
+import { roomOutline, wallFrames, type WallFrame } from "@/domain/geometry";
+import { countertopModel, unitPose, type WallHeightMode } from "@/domain/three-model";
 import type { Project } from "@/domain/types";
 import { ZONES } from "@/domain/zones";
 import { worldBoxes } from "@/store/project-store";
@@ -35,9 +35,10 @@ THREE.setConsoleFunction((type, message, ...params) => {
   console[type](message, ...params);
 });
 
+/** Position and turn about the vertical only (see unitPose). */
 const poseOf = (frame: WallFrame, offsetMm: number): Pose => {
-  const o = wallToWorld(frame, offsetMm, 0);
-  return { x: o.x * M, z: o.y * M, angle: Math.atan2(-frame.u.y, frame.u.x) };
+  const p = unitPose(frame, offsetMm);
+  return { x: p.x * M, z: p.y * M, angle: p.yaw };
 };
 
 const Countertop = memo(function Countertop({ project }: { project: Project }) {

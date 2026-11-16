@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { projectStore, useProjectStore } from "@/store/project-store";
 import { DesignPlan } from "./design-plan";
 import { Elevation } from "./elevation/elevation";
+import { useInteraction } from "./interaction";
 import { BlockedCard, WarningNote } from "./outcome-cards";
 
 /** Plan and per-wall elevation tabs. */
@@ -22,6 +23,8 @@ export function ViewsPanel() {
   const containerRef = useRef<HTMLElement>(null);
   // Full screen shows whichever tab is active (plan or a wall); the tabs still switch inside it.
   const fullView = useFullView();
+  // While a unit is dragged: which wall it goes on, and that R turns it to another.
+  const dragging = useInteraction((s) => s.item !== null && s.item.kind !== "nudge");
   const tabsRef = useRef<HTMLDivElement>(null);
 
   // Keep the active tab in view when selection switches walls.
@@ -64,7 +67,7 @@ export function ViewsPanel() {
         <FullViewButton on={fullView.on} onToggle={fullView.toggle} />
       </header>
 
-      {tab === "plan" || !wall ? <DesignPlan /> : <Elevation key={wall.id} wallId={wall.id} />}
+      {tab === "plan" || !wall ? <DesignPlan /> : <Elevation wallId={wall.id} />}
 
       {tab === "wall" && wall && (
         <div className="absolute right-3 bottom-3 flex items-center gap-1 rounded-lg border border-mk-line bg-mk-panel p-0.5 shadow-sm">
@@ -80,6 +83,11 @@ export function ViewsPanel() {
         </div>
       )}
 
+      {dragging && tab === "wall" && wall && (
+        <div data-turn-hint={wall.id} className="pointer-events-none absolute top-[60px] left-1/2 z-20 -translate-x-1/2 rounded-full bg-mk-ink px-3.5 py-1 text-[12px] whitespace-nowrap text-white shadow-sm">
+          Facing from <span className="font-semibold">Wall {wall.id}</span> · <kbd className="font-sans">R</kbd> next wall · <kbd className="font-sans">⇧R</kbd> previous
+        </div>
+      )}
       <BlockedCard container={containerRef} />
       <WarningNote container={containerRef} />
     </section>

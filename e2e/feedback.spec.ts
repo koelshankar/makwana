@@ -303,3 +303,138 @@ test.describe("Feedback 1 · item 1: deleting a wall leaves a gap", () => {
     await expect(page.locator("footer")).toContainText("Room closed · 8 walls");
   });
 });
+
+test.describe("Feedback 1 · item 2: choose which wall a unit faces", () => {
+  interface Saved {
+    id: string;
+    moduleCode: string;
+    wallId: string;
+    offsetMm: number;
+  }
+  const savedModules = (page: Page): Promise<Saved[]> => page.evaluate(() => JSON.parse(localStorage.getItem("makwana:project")!).state.project.modules);
+  const b600 = async (page: Page) => (await savedModules(page)).find((m) => m.moduleCode === "B600");
+
+  /** Screen point of a wall offset and height on the visible elevation. */
+  const onWall = (page: Page, wallId: string, offsetMm: number, zMm: number) =>
+    page.locator(`[data-elevation="${wallId}"]`).evaluate(
+      (svg: SVGSVGElement, [x, z]) => {
+        const p = new DOMPoint(x, 2850 - z).matrixTransform(svg.getScreenCTM()!);
+        return { x: p.x, y: p.y };
+      },
+      [offsetMm, zMm] as const,
+    );
+
+  /** Drags B600 from the catalogue over wall A near its right end; `whileOver` runs before the drop. */
+  async function dragB600(page: Page, whileOver?: () => Promise<void>) {
+    await page.getByPlaceholder("Search modules or codes").fill("B600");
+    const card = page.locator('[data-module="B600"]');
+    const from = (await card.boundingBox())!;
+    const to = await onWall(page, "A", 2900, 400);
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 12, from.y + from.height / 2 + 6, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 12 });
+    await page.waitForTimeout(60);
+    if (whileOver) await whileOver();
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+  }
+
+  async function toDesign(page: Page) {
+    await open(page, "/setup");
+    await resetDemo(page);
+    await stepper(page, "Design").click();
+    await expect(page.locator('[data-elevation="A"]')).toBeVisible();
+  }
+
+  test("while dragging, R / Shift+R turn it to the next / previous wall, shown before the drop", async ({ page }) => {
+    await toDesign(page);
+    await dragB600(page, async () => {
+      await expect(page.locator("[data-turn-hint]")).toHaveAttribute("data-turn-hint", "A");
+      await page.keyboard.press("r");
+      // The preview is on wall B: its elevation, the hint and the 3D ghost.
+      await expect(page.locator('[data-elevation="B"]')).toBeVisible();
+      await expect(page.locator("[data-turn-hint]")).toHaveAttribute("data-turn-hint", "B");
+      await page.keyboard.press("r");
+      await expect(page.locator('[data-elevation="C"]')).toBeVisible();
+      await page.keyboard.press("Shift+R");
+      await expect(page.locator('[data-elevation="B"]')).toBeVisible();
+      const onB = await onWall(page, "B", 1500, 400);
+      await page.mouse.move(onB.x, onB.y, { steps: 4 });
+      await page.waitForTimeout(60);
+      await page.locator("[data-three-panel]").screenshot({ path: test.info().outputPath("drag-on-b.png") });
+    });
+    const placed = await b600(page);
+    expect(placed?.wallId).toBe("B");
+    await expect(page.locator("[data-turn-hint]")).toHaveCount(0);
+  });
+
+  test("after placing: R, Shift+R and the turn button; blocked shows the card; undo and redo", async ({ page }) => {
+    await toDesign(page);
+    await dragB600(page);
+    expect(await b600(page)).toMatchObject({ wallId: "A", offsetMm: 2600 });
+    await expect(page.locator("[data-turn-button]")).toBeVisible();
+
+    // R: the next wall, in the same (A/B) corner.
+    await page.keyboard.press("r");
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "B", offsetMm: 0 });
+    await expect(page.locator('[data-elevation="B"]')).toBeVisible();
+    await page.keyboard.press("Meta+z");
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "A", offsetMm: 2600 });
+    await page.keyboard.press("Meta+Shift+z");
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "B", offsetMm: 0 });
+
+    // Shift+R twice: back to A, then H, into the column in the A/H corner: blocked.
+    await page.keyboard.press("Shift+R");
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "A", offsetMm: 2600 });
+    await page.keyboard.press("Shift+R");
+    const card = page.locator('[data-outcome="blocked"]');
+    await expect(card).toBeVisible();
+    await expect(page.locator('[data-elevation="H"]')).toBeVisible();
+    expect(await b600(page), "nothing moved").toMatchObject({ wallId: "A", offsetMm: 2600 });
+    const fixes = card.locator("button").filter({ has: page.locator("svg") });
+    await expect(fixes.first()).toHaveText("Move to nearest free spot on Wall H");
+    await fixes.first().click();
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "H", offsetMm: 1500 });
+
+    // The turn button on the selected unit does what R does: from H 1500 the next wall is A, where
+    // the projected spot (A 0) is the column's: blocked again, and the first fix finds A 300.
+    await page.locator("[data-turn-button]").click();
+    await expect(card).toBeVisible();
+    await expect(fixes.first()).toHaveText("Move to nearest free spot on Wall A");
+    await fixes.first().click();
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "A", offsetMm: 300 });
+  });
+
+  test("the inspector's Wall picker turns it the same way; walls it doesn't fit aren't offered", async ({ page }) => {
+    await toDesign(page);
+    await dragB600(page);
+    const inspector = page.getByRole("complementary", { name: "Inspector" });
+    await inspector.getByRole("combobox", { name: "Wall" }).click();
+    // Not D or F (450 mm): too short for a 600 mm unit.
+    await expect(page.getByRole("option")).toHaveText(["Wall A", "Wall B", "Wall C", "Wall E", "Wall G", "Wall H"]);
+    await page.getByRole("option", { name: "Wall B" }).click();
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "B", offsetMm: 0 });
+    await inspector.getByRole("button", { name: "Turn to the next wall" }).click();
+    await expect.poll(() => b600(page)).toMatchObject({ wallId: "C" });
+  });
+
+  test("no other wall fits: a toast, and it stays", async ({ page }) => {
+    await open(page, "/setup");
+    await resetDemo(page);
+    // A unit as long as wall A (3200), seeded: no other wall is that long.
+    await page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem("makwana:project")!);
+      saved.state.project.modules = [
+        { id: "wide", moduleCode: "B600", wallId: "A", layer: "base", offsetMm: 0, widthMm: 3200, carcassId: "bwp", finishId: "matte-sage", shutterTypeId: "standard", hardware: [], isCustomSize: true },
+      ];
+      localStorage.setItem("makwana:project", JSON.stringify(saved));
+    });
+    await page.reload();
+    await stepper(page, "Design").click();
+    await page.locator('[data-elevation="A"] [data-unit="wide"]').click({ position: { x: 40, y: 10 } });
+    await page.keyboard.press("r");
+    await expect(page.getByText("No other wall fits B600 (3200 mm)")).toBeVisible();
+    expect((await savedModules(page))[0]).toMatchObject({ wallId: "A", offsetMm: 0 });
+  });
+});

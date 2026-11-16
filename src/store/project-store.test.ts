@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { placementsOnWall } from "@/domain/geometry";
+import { placementsOnWall, wallFrame } from "@/domain/geometry";
+import { unitPose } from "@/domain/three-model";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import { unit } from "@/domain/testing";
 import type { ModulePlacement } from "@/domain/types";
@@ -443,6 +444,81 @@ describe("deleting a wall leaves a gap (Feedback 1, item 1)", () => {
     ]);
     expect(store.getState().project.room.walls.some((w) => w.open)).toBe(false);
     expect(store.getState().project.room.walls.map((w) => w.id)).toEqual(["A", "B", "C", "D"]);
+  });
+});
+
+describe("turning a unit to face another wall (Feedback 1, item 2)", () => {
+  const atCorner = () => {
+    const store = createProjectStore(emptyMehta);
+    const { id } = store.getState().tryPlaceModule(draft(unit("x", "B600", "A", 2600, 600)));
+    return { store, id };
+  };
+
+  it("R: the next wall, at the same corner; one undoable step; Shift+R goes back", () => {
+    const { store, id } = atCorner();
+    const steps = store.getState().past.length;
+    const res = store.getState().turnPlacement(id, 1);
+    expect(res.ok).toBe(true);
+    expect(store.getState().project.modules[0]).toMatchObject({ id, wallId: "B", offsetMm: 0, layer: "base" });
+    expect(store.getState().past.length).toBe(steps + 1);
+    store.getState().undo();
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "A", offsetMm: 2600 });
+    store.getState().redo();
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "B", offsetMm: 0 });
+    expect(store.getState().turnPlacement(id, -1).ok).toBe(true);
+    // Back on A at the A/B corner: B's offset 0 projects to A's right end.
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "A", offsetMm: 2600 });
+  });
+
+  it("blocked: nothing moves, and the first fix is 'Move to nearest free spot on Wall H'", () => {
+    const { store, id } = atCorner();
+    const before = store.getState().project;
+    const res = store.getState().turnPlacement(id, -1); // into the column in the A/H corner
+    expect(res.ok).toBe(false);
+    expect(store.getState().project).toBe(before);
+    expect(res.candidate).toMatchObject({ wallId: "H", offsetMm: 1800 });
+    const first = res.results.find((r) => r.status === "blocked")!;
+    expect(first.fixes[0]).toEqual({ label: "Move to nearest free spot on Wall H", action: { type: "move", placementId: id, wallId: "H", offsetMm: 1500 } });
+    // The card's fix places it there, as one step.
+    expect(store.getState().placeWithFix(res.candidate!, first.fixes[0]).ok).toBe(true);
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "H", offsetMm: 1500 });
+  });
+
+  it("the Wall picker uses the same logic; a wall it doesn't fit on, or its own, does nothing", () => {
+    const { store, id } = atCorner();
+    expect(store.getState().turnPlacement(id, "B").ok).toBe(true);
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "B", offsetMm: 0 });
+    const before = store.getState().project;
+    expect(store.getState().turnPlacement(id, "D")).toMatchObject({ ok: false, reason: "no-wall" }); // 450 mm
+    expect(store.getState().turnPlacement(id, "B")).toMatchObject({ ok: false, reason: "no-wall" });
+    expect(store.getState().project).toBe(before);
+  });
+
+  it("no other wall fits: nothing moves", () => {
+    // As wide as wall A (seeded; only the turn is under test): no other wall is that long.
+    const store = createProjectStore({ ...emptyMehta, modules: [unit("x", "B600", "A", 0, 3200, "base", { isCustomSize: true })] });
+    const id = "x";
+    const before = store.getState().project;
+    expect(store.getState().turnPlacement(id, 1)).toMatchObject({ ok: false, reason: "no-wall" });
+    expect(store.getState().project).toBe(before);
+  });
+
+  it("a fitted sink turns its sink unit, and goes with it", () => {
+    const store = createProjectStore(sampleDesign);
+    const res = store.getState().turnPlacement("a-sink", 1);
+    expect(res.id).toBe("m-sink");
+    expect(res.candidate?.wallId).toBe("B");
+  });
+
+  it("a unit moved to another wall turns about the vertical only", () => {
+    const { store, id } = atCorner();
+    const a = wallFrame(store.getState().project.room, "A");
+    store.getState().turnPlacement(id, 1);
+    const b = wallFrame(store.getState().project.room, "B");
+    const [pa, pb] = [unitPose(a, 2600), unitPose(b, 0)];
+    // A pose is position plus a yaw: nothing else to tip. A to B is a quarter turn.
+    expect(Object.keys(pa).sort()).toEqual(["x", "y", "yaw"]);
+    expect(Math.abs(Math.abs(pb.yaw - pa.yaw) - Math.PI / 2)).toBeLessThan(1e-9);
   });
 });
 

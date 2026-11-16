@@ -596,6 +596,24 @@ export function roomModel(room: Room, mode: WallHeightMode): RoomModel {
 }
 
 // ---------------------------------------------------------------------------
+// Unit pose
+
+/**
+ * Where a unit stands in the 3D view: its left-back corner on the wall (world mm) and its turn
+ * about the vertical, in radians. That is the whole pose: units never tip about x or z.
+ */
+export interface UnitPose {
+  x: number;
+  y: number;
+  yaw: number;
+}
+
+export function unitPose(frame: WallFrame, offsetMm: number): UnitPose {
+  const o = wallToWorld(frame, offsetMm, 0);
+  return { x: o.x, y: o.y, yaw: Math.atan2(-frame.u.y, frame.u.x) };
+}
+
+// ---------------------------------------------------------------------------
 // Wall labels
 
 /** How far into the room a wall's floor label's centre sits: just clear of the countertop (600 mm). */

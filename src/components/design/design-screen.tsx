@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { getModule, catalogue } from "@/domain/catalogue";
 import { findPlacement, isModulePlacement, solidWalls } from "@/domain/geometry";
 import { projectStore, useBlockedIds, useProjectStore, useRoomValidation } from "@/store/project-store";
-import { commitGhost } from "./commit";
+import { nextWall } from "@/domain/turn";
+import { commitGhost, turnSelected } from "./commit";
 import { DesignFooter } from "./design-footer";
-import { ghostAt } from "./ghost";
+import { dragPlacement, ghostAt, labelOf, widthOf } from "./ghost";
 import { Inspector } from "./inspector";
 import { useInteraction, type ClientPoint } from "./interaction";
 import { ApplianceDragPreview, ModuleDragPreview, ModulesPanel } from "./modules-panel";
@@ -65,6 +66,28 @@ function useKeyboard() {
         return;
       }
       const selected = ui.selectedPlacementId ? findPlacement(project, ui.selectedPlacementId) : undefined;
+      // R / Shift+R: face the next / previous wall. While dragging, the wall the unit will go on
+      // (the elevation switches to it, preview included); otherwise the selected unit turns.
+      if (e.code === "KeyR" || e.key === "r" || e.key === "R") {
+        if (e.repeat) return;
+        const dir = e.shiftKey ? -1 : 1;
+        const item = interaction.item;
+        if (item && item.kind !== "nudge") {
+          e.preventDefault();
+          const from = ui.activeWallId ?? solidWalls(project.room)[0]?.id;
+          const base = from ? dragPlacement(project, item, from) : null;
+          if (!base || !from) return;
+          const next = nextWall(project, catalogue, base, from, dir);
+          if (next) projectStore.getState().showWall(next);
+          else toast(`No other wall fits ${labelOf(base)} (${widthOf(base)} mm)`, { id: "turn-no-wall" });
+          return;
+        }
+        if (selected) {
+          e.preventDefault();
+          turnSelected(selected.id, dir);
+        }
+        return;
+      }
       if (!selected) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();

@@ -8,7 +8,9 @@ import type { Placement } from "@/domain/types";
 import { ZONES } from "@/domain/zones";
 import { mm } from "@/lib/room-format";
 import { projectStore, useBlockedIds, useProjectStore } from "@/store/project-store";
-import { commitGhost } from "../commit";
+import { RotateCw } from "lucide-react";
+import { turnSubject } from "@/domain/turn";
+import { commitGhost, turnSelected } from "../commit";
 import { dragPlacement, ghostAt, snappedGhost, validHosts, widthOf, type WallPlaced } from "../ghost";
 import { useInteraction, type ClientPoint, type DragItem, type ElevationApi, type Ghost } from "../interaction";
 import { elevationModel, layerBand, type ElevUnit } from "./elevation-model";
@@ -36,7 +38,7 @@ const SNAP_PX = 8;
 
 type Gesture =
   | { kind: "pan"; x: number; y: number; cx: number; cy: number; moved: boolean }
-  | { kind: "unit"; id: string; grabMm: number; x: number; moved: boolean };
+  | { kind: "unit"; id: string; grabMm: number; x: number; moved: boolean; last?: { x: number; y: number } };
 
 /** Fronts: drawer splits, shutter dividers and handle marks, in wall-local mm. */
 function Fronts({ u, Y, handleless }: { u: ElevUnit; Y: (z: number) => number; handleless: boolean }) {
@@ -127,7 +129,10 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
   const Y = (z: number) => ceiling - z;
   const fit = { x: -M.left, y: -M.top, w: length + M.left + M.right, h: ceiling + M.top + M.bottom };
   const size = print ? { w: PRINT_WIDTH_PX, h: (PRINT_WIDTH_PX * fit.h) / fit.w } : measured;
-  const [pan, setPan] = useState<{ cx: number; cy: number } | null>(null);
+  // Panning belongs to a wall: switching walls (a tab, or R while dragging) starts fitted.
+  const [panState, setPanState] = useState<{ cx: number; cy: number; wallId: string } | null>(null);
+  const pan = panState?.wallId === wallId ? panState : null;
+  const setPan = (p: { cx: number; cy: number }) => setPanState({ ...p, wallId });
   const cx = pan?.cx ?? fit.x + fit.w / 2;
   const cy = pan?.cy ?? fit.y + fit.h / 2;
   const aspect = size.w / Math.max(1, size.h);
@@ -176,6 +181,8 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
   };
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
+  const gesture = useRef<Gesture | null>(null);
+
   // Drags from the catalogue arrive as pointer updates in the interaction store.
   const alt = useRef(false);
   useEffect(() => {
@@ -217,8 +224,27 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
     };
   }, [wallId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // R while dragging switches the wall shown here (this component stays mounted, so a unit drag
+  // carries on): show the dragged unit at the pointer on the new wall straight away.
+  const shownWall = useRef(wallId);
+  useEffect(() => {
+    if (print || shownWall.current === wallId) return;
+    shownWall.current = wallId;
+    const { item, pointer } = useInteraction.getState();
+    const g = gesture.current;
+    if ((item?.kind === "new" || item?.kind === "newAppliance") && pointer) {
+      schedule(() => resolve(pointer, item, !alt.current));
+    } else if (g?.kind === "unit" && g.moved && g.last) {
+      const move: DragItem = { kind: "move", placementId: g.id, grabMm: g.grabMm };
+      const last = g.last;
+      schedule(() => {
+        const r = svgRef.current!.getBoundingClientRect();
+        return resolve({ x: Math.min(r.right - 1, Math.max(r.left + 1, last.x)), y: (r.top + r.bottom) / 2 }, move, !alt.current);
+      });
+    }
+  }, [wallId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ----- pointer gestures: pan the view, or drag a unit along its wall -----
-  const gesture = useRef<Gesture | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     svgRef.current!.setPointerCapture(e.pointerId);
@@ -246,6 +272,7 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
     }
     if (!g.moved && Math.abs(e.clientX - g.x) < 4) return;
     g.moved = true;
+    g.last = { x: e.clientX, y: e.clientY };
     const item: DragItem = { kind: "move", placementId: g.id, grabMm: g.grabMm };
     const pointer = { x: e.clientX, y: e.clientY };
     const magnets = !e.altKey;
@@ -448,6 +475,8 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
     ) : null;
 
   const sel = model.units.find((u) => u.id === selectedId);
+  const turnId = selectedId ? turnSubject(project, selectedId)?.id : undefined;
+  const turning = turnId ? model.units.find((u) => u.id === turnId) : undefined;
   const vDim = (x: number, z0: number, z1: number, label: string, key: string) => (
     <g key={key} pointerEvents="none">
       <line x1={x} y1={Y(z0)} x2={x} y2={Y(z1)} stroke={C.ink2} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
@@ -673,6 +702,30 @@ export function Elevation({ wallId, print = false }: { wallId: string; print?: b
         </g>
         {vDim(length + font(18), 0, ZONES.countertop.top, mm(ZONES.countertop.top), "ctr")}
         {vDim(length + font(46), 0, ceiling, `CEILING ${mm(ceiling)}`, "ceil")}
+
+        {/* The selected unit's turn button: face the next wall (R). A fitted appliance turns its host. */}
+        {!print && !dragItem && turning && (() => {
+          const r = font(13);
+          const cxB = turning.x1 - font(16);
+          const cyB = Y(turning.z1) - font(18);
+          const go = () => turnSelected(selectedId!, 1);
+          return (
+            <g
+              role="button"
+              tabIndex={0}
+              aria-label="Turn to the next wall (R)"
+              data-turn-button={turning.id}
+              className="cursor-pointer"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={go}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && go()}
+            >
+              <title>Turn to face the next wall (R) · Shift+R: the previous wall</title>
+              <circle cx={cxB} cy={cyB} r={r} fill={C.accent} />
+              <RotateCw x={cxB - r * 0.6} y={cyB - r * 0.6} width={r * 1.2} height={r * 1.2} color="white" strokeWidth={2.4} />
+            </g>
+          );
+        })()}
       </svg>
     </div>
   );

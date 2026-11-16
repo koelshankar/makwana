@@ -2,8 +2,7 @@
 // the engine keeps only the fixes that are proven safe by applying them to a copy.
 
 import { applyFix, withPlacement } from "../fixes";
-import { findWall } from "../geometry";
-import type { Anchor, Catalogue, CheckResult, Fix, ModulePlacement, Placement, Project } from "../types";
+import type { Anchor, Catalogue, CheckResult, Fix, Placement, Project } from "../types";
 import { applianceHostRule, chimneyAboveHobRule, hobUnderWindowRule, hostCapacityRule, sinkNearPlumbingRule } from "./appliance";
 import { getContext } from "./context";
 import { discountRule } from "./commercial";
@@ -198,20 +197,3 @@ export function checkPlacementFast(project: Project, cat: Catalogue, candidate: 
   return { status: "pass", reason: null, ruleId: null };
 }
 
-/**
- * The offset on `wallId` nearest to the module's current offset where the fast check passes,
- * on a 10 mm grid plus the wall end. Null if the unit fits nowhere on that wall.
- */
-export function nearestValidOffset(project: Project, cat: Catalogue, placement: ModulePlacement, wallId: string): number | null {
-  const wall = findWall(project.room, wallId);
-  if (!wall || wall.lengthMm < placement.widthMm) return null;
-  const max = wall.lengthMm - placement.widthMm;
-  const preferred = Math.min(max, Math.max(0, placement.offsetMm));
-  const candidates = new Set<number>([max]);
-  for (let o = 0; o <= max; o += 10) candidates.add(o);
-  const sorted = [...candidates].sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred) || a - b);
-  for (const offsetMm of sorted) {
-    if (checkPlacementFast(project, cat, { ...placement, wallId, offsetMm }).status === "pass") return offsetMm;
-  }
-  return null;
-}
