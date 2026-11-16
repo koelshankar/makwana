@@ -32,7 +32,9 @@ describe("sampleDesign", () => {
   it("has about a dozen modules, five appliances and a BC1000 at the A/B corner", () => {
     expect(sampleDesign.modules.length).toBeGreaterThanOrEqual(12);
     expect(sampleDesign.appliances).toHaveLength(5);
-    expect(sampleDesign.modules.find((m) => m.moduleCode === "BC1000")).toMatchObject({ wallId: "A", offsetMm: 2200 });
+    // Pulled 50 mm out of the corner, with a corner filler behind it (Feedback 2, item 4).
+    expect(sampleDesign.modules.find((m) => m.moduleCode === "BC1000")).toMatchObject({ wallId: "A", offsetMm: 2150 });
+    expect(sampleDesign.modules.find((m) => m.id === "m-fil-corner")).toMatchObject({ wallId: "A", offsetMm: 3150, widthMm: 50 });
   });
 });
 
@@ -137,13 +139,16 @@ describe("fit rules", () => {
     ]);
   });
 
-  it("warns when an inside corner has base units on both walls but no blind corner", () => {
+  it("blocks an inside corner with base units on both walls but no blind corner (the old corner rule, now a hidden front)", () => {
     const p = project([unit("a", "B600", "A", 2600, 600), unit("b", "B600", "B", 600, 600)]);
     const [r] = check(p, "corner");
-    expect(r.status).toBe("warning");
-    // Only the wall A unit can become a BC1000 tucked into the corner; on wall B it would hit wall A's unit.
-    expect(r.fixes.map((f) => f.action)).toEqual([
-      { type: "replaceAndMove", placementId: "a", moduleCode: "BC1000", offsetMm: 2200 },
+    expect(r.status).toBe("blocked");
+    expect(r.placementIds).toEqual(["a", "b"]);
+    // Move a clear of b's side (560 mm) and its handles (50 mm): 3200 - 610 - 600. Or the old fix:
+    // a BC1000 in the corner, whose blind section sits behind b.
+    expect(r.fixes.map((f) => [f.label, f.action])).toEqual([
+      ["Move clear of corner", { type: "move", placementId: "a", wallId: "A", offsetMm: 1990 }],
+      ["Replace B600 on Wall A with BC1000 in the corner", { type: "replaceAndMove", placementId: "a", moduleCode: "BC1000", offsetMm: 2200 }],
     ]);
   });
 });
@@ -242,13 +247,14 @@ describe("day 2 corrections", () => {
     expect(r.fixes[0].action).toEqual({ type: "setBlindSide", placementId: "bc", blindSide: "right" });
   });
 
-  it("warns when a blind corner faces away from the corner, and flips it", () => {
+  it("blocks a blind corner whose blind side faces away from the corner, and flips it", () => {
     const p = project([
       unit("bc", "BC1000", "A", 2200, 1000, "base", { blindSide: "left" }),
       unit("b", "B600", "B", 560, 600),
     ]);
     const [r] = check(p, "corner");
-    expect(r.message).toMatch(/blind side facing away/);
-    expect(r.fixes[0].action).toEqual({ type: "setBlindSide", placementId: "bc", blindSide: "right" });
+    expect(r.status).toBe("blocked");
+    expect(r.message).toMatch(/turn its blind side to the corner/);
+    expect(r.fixes.map((f) => f.action)).toContainEqual({ type: "setBlindSide", placementId: "bc", blindSide: "right" });
   });
 });

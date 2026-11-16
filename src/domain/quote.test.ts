@@ -202,9 +202,10 @@ describe("quoteModel", () => {
       "B-2 SU900 Wall A",
       "B-3 FIL Wall A",
       "B-4 BC1000 Wall A",
-      "B-5 BD600 Wall B",
+      "B-5 FIL Wall A", // the corner filler behind BC1000
       "B-6 BD600 Wall B",
-      "B-7 FIL Wall B",
+      "B-7 BD600 Wall B",
+      "B-8 FIL Wall B",
     ]);
     expect(base.lines[0]).toMatchObject({ size: { w: 900, h: 720, d: 560 }, finish: { short: "Sage Green" } });
     for (const g of m.groups) expect(g.lines.reduce((s, l) => s + l.amount, 0)).toBe(g.amount);

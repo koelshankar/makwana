@@ -24,7 +24,7 @@ Git history has two working commits, "Days 4–6: design screen, drag and drop" 
 | ----- | ----- | ----- |
 | Room setup | Any-shape room built wall by wall (length \+ heading), ceiling height, features: window, door, plumbing, column, beam, duct box. Templates, "Close room" hint, live plan drawn to scale. Design is locked until the room closes. | /setup |
 | Design: placement | Drag units from the catalogue onto a wall elevation. Units snap to neighbours and walls; Alt disables snapping. Arrow keys nudge (Shift \= 100 mm), Delete removes, Esc deselects. Undo/redo with ⌘Z / ⇧⌘Z. | /design, middle panel |
-| Design: rules | Each drop is checked before it commits. Blocked drops show a card with suggested fixes; warnings show a note. Checks include overlap, outside wall, covers window, blocks door, above ceiling, beam (short lofts), column, leftover gap, corner and blind side, appliance fit, custom size, discount. | Blocked card; footer checks popover |
+| Design: rules | Each drop is checked before it commits. Blocked drops show a card with suggested fixes; warnings show a note. Checks include overlap, outside wall, covers window, blocks door, above ceiling, beam (short lofts), column, leftover gap, corners (a front hidden behind a neighbour, handles clashing where two fronts meet) and blind side, appliance fit, custom size, discount. | Blocked card; footer checks popover |
 | Design: appliances | Sink and hob fit into a sink or hob unit, with countertop cut-outs. Oven and microwave fit into a tall unit. Chimney, dishwasher and fridge space are placed freely. Each can be marked as the customer's own. | Appliances tab |
 | Design: finishes | Carcass, finish, shutter type and hardware per unit. New units inherit the last finish used in their group (base, wall and loft, tall). | Inspector (right panel) |
 | Plan view | Top view with unit footprints and countertop cut-outs; click to select. | Plan tab |
@@ -130,7 +130,13 @@ Tips for dragging: units are dropped onto the **elevation** (the middle panel sh
 **Design: build an L kitchen**
 
 * On Wall A, drag HU900 (hob unit) to just right of the column, then SU900 (sink unit) next to it, then BC1000 (blind corner) to the right end of wall A. Expect: each drop snaps; running total rises; a 100 mm gap between SU900 and BC1000 shows as a warning.  
-* Click the Wall B tab. Drag two BD600 units next to the corner. Expect: they start at 560 mm (the corner unit takes the first 560 mm of wall B).
+* Click the Wall B tab. Drag a BD600 next to the corner. Expect: it starts at 560 mm (the corner unit takes the first 560 mm of wall B).
+
+**Design: a corner clash and its corner filler**
+
+* Expect: an amber note says "Handles clash where BC1000 and BD600 meet at the corner of Wall A and Wall B" (BD600's drawers start right at BC1000's door). It is a warning: BD600 stays.
+* Click "Add corner filler" on the note. Expect: BC1000 moves 50 mm out of the corner and a 50 mm filler fills the corner behind it; the clash warning goes; the gap between SU900 and BC1000 is now 50 mm. The quote will list the filler as a "Filler panel" line on Wall A.
+* Drag a second BD600 next to the first. Expect: it starts at 1160 mm.
 
 **Design: trigger and fix a block**
 
@@ -139,7 +145,7 @@ Tips for dragging: units are dropped onto the **elevation** (the middle panel sh
 
 **Design: fix a gap with a filler**
 
-* Click the warnings chip in the footer, open "100 mm gap between SU900 and BC1000 on Wall A", click "Add a 100 mm filler". Expect: a filler fills the gap; one warning left (the 40 mm on wall B). It doesn't block the quote.
+* Click the warnings chip in the footer, open "50 mm gap between SU900 and BC1000 on Wall A", click "Add a 50 mm filler". Expect: a filler fills the gap; one warning left (the 40 mm on wall B). It doesn't block the quote.
 
 **Design: appliances and finishes**
 

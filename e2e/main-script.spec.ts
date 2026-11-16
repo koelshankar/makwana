@@ -4,6 +4,7 @@
 // The console guard (fixtures.ts) fails the run on any console error or warning.
 
 import type { Locator, Page } from "@playwright/test";
+import { dragOnto, onWall, searchAndDrag } from "./drag";
 import { demoMenu, expect, open, test } from "./fixtures";
 
 const PERSIST_KEY = "makwana:project";
@@ -28,42 +29,6 @@ async function saved(page: Page): Promise<{ project: { modules: SavedPlacement[]
 const modulesOf = async (page: Page, code: string) => (await saved(page)).project.modules.filter((m) => m.moduleCode === code);
 const rupees = (text: string | null) => Number((text ?? "").replace(/[^\d]/g, ""));
 const runningTotal = async (page: Page) => rupees(await page.locator("[data-running-total]").textContent());
-
-/** Screen point of a wall offset and height on the visible elevation of `wallId`. */
-async function onWall(page: Page, wallId: string, offsetMm: number, zMm: number) {
-  return page.locator(`[data-elevation="${wallId}"]`).evaluate(
-    (svg: SVGSVGElement, [x, z, ceiling]) => {
-      const p = new DOMPoint(x, ceiling - z).matrixTransform(svg.getScreenCTM()!);
-      return { x: p.x, y: p.y };
-    },
-    [offsetMm, zMm, (await saved(page)).project.room.ceilingHeightMm] as const,
-  );
-}
-
-/**
- * Drags a catalogue card onto an elevation so the unit's centre is at `centreMm` (the screen drops
- * a unit centred on the pointer). `whileOver` runs with the pointer over the wall, before the drop.
- */
-async function dragOnto(page: Page, card: Locator, wallId: string, centreMm: number, zMm: number, whileOver?: () => Promise<void>) {
-  await card.scrollIntoViewIfNeeded();
-  const from = (await card.boundingBox())!;
-  const to = await onWall(page, wallId, centreMm, zMm);
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(from.x + from.width / 2 + 12, from.y + from.height / 2 + 6, { steps: 3 });
-  await page.mouse.move(to.x, to.y, { steps: 12 });
-  await page.waitForTimeout(60); // one animation frame for the ghost
-  if (whileOver) await whileOver();
-  await page.mouse.up();
-  // dnd-kit swallows clicks for 50 ms after a drop; a person can't click that fast, a test can.
-  await page.waitForTimeout(100);
-}
-
-async function searchAndDrag(page: Page, code: string, wallId: string, centreMm: number, zMm: number) {
-  await page.getByPlaceholder("Search modules or codes").fill(code);
-  await dragOnto(page, page.locator(`[data-module="${code}"]`), wallId, centreMm, zMm);
-  await page.getByPlaceholder("Search modules or codes").fill("");
-}
 
 /** A screenshot taken once two in a row agree (the 3D view draws on demand). */
 async function settledShot(target: Locator): Promise<Buffer> {
@@ -157,11 +122,31 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     await expect.poll(() => runningTotal(page)).toBeGreaterThan(total);
     await expect(page.locator("[data-checks]")).toHaveAttribute("data-checks", "warning");
     await expect(page.locator("[data-outcome=warning]")).toContainText(/100 mm gap between SU900 and BC1000/);
+    await expect(page.locator("[data-outcome=warning]")).not.toContainText(/corner/i);
     await shot("wall-a-base");
 
     await page.getByRole("tab", { name: "Wall B", exact: true }).click();
     await searchAndDrag(page, "BD600", "B", 560 + 300 + 30, 400);
     await expect.poll(async () => (await modulesOf(page, "BD600")).map((m) => m.offsetMm)).toEqual([560]);
+    await shot("wall-b-first-drawer");
+  });
+
+  await test.step("Design: a corner clash and its corner filler (Feedback 2, item 4)", async () => {
+    // BD600's drawers start right at BC1000's front: their handles clash. A warning, so BD600 stays.
+    const note = page.locator("[data-outcome=warning]");
+    await expect(note).toContainText("Handles clash where BC1000 and BD600 meet at the corner of Wall A and Wall B.");
+    await expect(page.locator("[data-checks]")).toContainText("2 warnings");
+    await shot("corner-clash");
+    await note.getByRole("button", { name: "Add corner filler" }).click();
+    // BC1000 is pulled 50 mm out of the corner, with a 50 mm filler behind it; BD600 doesn't move.
+    await expect.poll(async () => (await modulesOf(page, "BC1000")).map((m) => m.offsetMm)).toEqual([2150]);
+    await expect.poll(async () => (await modulesOf(page, "FIL")).map((m) => `${m.wallId}@${m.offsetMm}+${m.widthMm}`)).toEqual(["A@3150+50"]);
+    expect((await modulesOf(page, "BD600")).map((m) => m.offsetMm)).toEqual([560]);
+    await expect(page.locator("[data-checks]")).toHaveText(/^1 warning/);
+    await shot("corner-filler");
+  });
+
+  await test.step("Design: the second drawer unit", async () => {
     await searchAndDrag(page, "BD600", "B", 1160 + 300 + 30, 400);
     await expect.poll(async () => (await modulesOf(page, "BD600")).map((m) => m.offsetMm).sort((a, b) => a! - b!)).toEqual([560, 1160]);
     await shot("wall-b-base");
@@ -196,11 +181,12 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
 
   await test.step("Design: fix a gap with a filler", async () => {
     const popover = page.locator("[data-checks-popover]");
-    const row = popover.locator("[data-check-row]").filter({ hasText: "100 mm gap between SU900 and BC1000" });
+    // 50 mm, not 100: BC1000 was pulled 50 mm out of the corner.
+    const row = popover.locator("[data-check-row]").filter({ hasText: "50 mm gap between SU900 and BC1000" });
     await expect(row).toContainText("Wall A");
     await row.getByRole("button").first().click();
-    await row.getByRole("button", { name: "Add a 100 mm filler" }).click();
-    await expect.poll(async () => (await modulesOf(page, "FIL")).map((m) => `${m.wallId}@${m.offsetMm}+${m.widthMm}`)).toEqual(["A@2100+100"]);
+    await row.getByRole("button", { name: "Add a 50 mm filler" }).click();
+    await expect.poll(async () => (await modulesOf(page, "FIL")).map((m) => `${m.wallId}@${m.offsetMm}+${m.widthMm}`)).toEqual(["A@3150+50", "A@2100+50"]);
     await expect(page.locator("[data-checks]")).toHaveText(/^1 warning/);
     await expect(popover.locator("[data-check-row]")).toHaveCount(1);
     await expect(popover.locator("[data-check-row]")).toContainText(/40 mm gap/);
@@ -350,6 +336,13 @@ test("main script: Reset demo to the PDF and the activity log, no reload", async
     await expect(quoteWalls.getByRole("radio")).toHaveText(["Auto", "Cut at 450", "Full height"]);
     await expect(quoteWalls.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
     await shot("quote-draft");
+    // The corner filler (and the gap filler) are quote lines: Filler panel, Wall A, 50 mm wide.
+    const fillers = page.locator("[data-quote-group=base] [data-quote-line]").filter({ hasText: "Filler panel" });
+    await expect(fillers).toHaveCount(2);
+    for (const line of await fillers.all()) {
+      await expect(line).toContainText("Wall A");
+      await expect(line).toContainText("50 × 720 × 20");
+    }
 
     const grand = page.locator("[data-quote-grand-total]");
     const before = rupees(await grand.textContent());

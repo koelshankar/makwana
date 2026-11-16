@@ -509,8 +509,9 @@ describe("turning a unit to face another wall (Feedback 1, item 2)", () => {
     const store = createProjectStore(sampleDesign);
     const res = store.getState().turnPlacement("a-hob", 1);
     expect(res.id).toBe("m-hob");
-    // B is full in the sample design, so the next wall with room is C.
-    expect(res.candidate?.wallId).toBe("C");
+    // B is full in the sample design. C has no spot either: anywhere on C a base unit would stand in
+    // front of the T600OM's doors at the B/C corner (the corner rule). So the next wall is H.
+    expect(res.candidate?.wallId).toBe("H");
   });
 
   it("a fitted sink's unit has nowhere else to go: it must stay by the plumbing on A", () => {
@@ -584,9 +585,10 @@ describe("Move, the Wall picker and R / Shift+R agree (Feedback 2, item 3)", () 
   });
 
   it("a wall that isn't on the list is refused the same way by every path", () => {
-    // HU900 (m-hob) fits A, C and H in the sample design, not B (full) or the short duct walls.
-    expect(wallsUnitFits(sampleDesign, catalogue, sampleDesign.modules.find((x) => x.id === "m-hob")!)).toEqual(["A", "C", "H"]);
-    for (const wallId of ["B", "D", "E", "F", "G"]) expect(turned("m-hob", wallId).res).toMatchObject({ ok: false, reason: "no-wall" });
+    // HU900 (m-hob) fits A and H in the sample design: not B (full), not C (it would stand in front of
+    // the T600OM's doors at the B/C corner) and not the short duct walls.
+    expect(wallsUnitFits(sampleDesign, catalogue, sampleDesign.modules.find((x) => x.id === "m-hob")!)).toEqual(["A", "H"]);
+    for (const wallId of ["B", "C", "D", "E", "F", "G"]) expect(turned("m-hob", wallId).res).toMatchObject({ ok: false, reason: "no-wall" });
   });
 });
 
@@ -757,5 +759,38 @@ describe("undo after approval", () => {
     expect(s().project.discountPct).toBe(0);
     expect(s().project.status).toBe("draft");
     expect(s().project.quote!.version).toBe(2);
+  });
+});
+
+describe("inside-corner clash in the store (Feedback 2, item 4)", () => {
+  const bc = unit("bc", "BC1000", "A", 2200, 1000, "base", { blindSide: "right" });
+  const tall = unit("t", "T600OM", "B", 560, 600, "tall", { finishId: "laminate-charcoal", shutterTypeId: "appliance-housing" });
+
+  it("a tall unit whose front meets a blind corner's is refused; Add corner filler places it with the filler, as one step", () => {
+    const store = createProjectStore({ ...emptyMehta, modules: [bc] });
+    const res = store.getState().tryPlaceModule(draft(tall));
+    expect(res.ok).toBe(false);
+    expect(store.getState().past).toHaveLength(0);
+    const clash = res.results.find((r) => r.ruleId === "corner-clash")!;
+    expect(clash.status).toBe("blocked");
+    const fix = clash.fixes.find((f) => f.label === "Add corner filler")!;
+    const placed = store.getState().placeWithFix({ ...draft(tall), id: res.id }, fix);
+    expect(placed.ok).toBe(true);
+    const p = store.getState().project;
+    expect(p.modules.map((m) => `${m.moduleCode}@${m.wallId}${m.offsetMm}+${m.widthMm}`).sort()).toEqual(["BC1000@A2150+1000", "FIL@A3150+50", "T600OM@B560+600"]);
+    expect(store.getState().past).toHaveLength(1);
+    store.getState().undo();
+    expect(store.getState().project.modules).toEqual([bc]);
+  });
+
+  it("a base drawer unit there is placed with a warning; the warning's filler fix is one step", () => {
+    const store = createProjectStore({ ...emptyMehta, modules: [bc] });
+    const res = store.getState().tryPlaceModule(draft(unit("bd", "BD600", "B", 560, 600)));
+    expect(res.ok).toBe(true);
+    const clash = res.results.find((r) => r.ruleId === "corner-clash")!;
+    expect(clash.status).toBe("warning");
+    store.getState().applyFix(clash.fixes[0]);
+    expect(store.getState().project.modules.find((m) => m.moduleCode === "FIL")).toMatchObject({ wallId: "A", offsetMm: 3150, widthMm: 50 });
+    expect(store.getState().past).toHaveLength(2);
   });
 });

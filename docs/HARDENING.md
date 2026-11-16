@@ -235,8 +235,9 @@ Branch: `feedback-1` (continued). One commit per item. Not merged.
 |---|---|---|
 | 2 Remove the 3D wall labels | Done | `8b52877` |
 | 3 Move button replaces the round turn button | Done | `a222088` |
+| `insideCorners` helper | Done (no behaviour change) | `690f095` |
+| 4 Inside-corner door clash rule | Done | see "Item 4" below |
 | 1 Start a new wall from the end of any wall | Plan only: `docs/PLAN-wall-start.md` | — |
-| 4 Inside-corner door clash rule | Plan only: `docs/PLAN-wall-start.md` | — |
 
 ## Item 2: Remove the 3D wall labels
 
@@ -303,3 +304,28 @@ Also written into `docs/PLAN-wall-start.md` ("Decisions 2026-11-16"). Build orde
   - No click: the first free end in room order (today's behaviour).
   - Old saves load with no migration; a test loads a save from before the change.
 - **Kept**: the inspector's square turn button.
+
+## Item 4: Inside-corner door clash rule
+
+`src/domain/rules/corner.ts`. Both rules read one analysis per rules run (`analyseCorners`), over every inside corner from `insideCorners`. Positions are distances from the corner along each wall, so it works whichever end of a wall the corner is at.
+
+- **Which units meet.** Catalogue units only (not fillers, not appliances). Height bands decide (`bandsClash`): the same layer meets, so do two lofts; a tall unit meets every layer; base next to a wall unit, or a loft next to a wall unit, doesn't. Units standing in each other's footprint are the overlap rule's business and are skipped.
+- **Case a), hidden front (`corner`, Blocked).** Part of a unit's front (its opening part: a BC1000's blind section doesn't count) is within the other unit's depth of the corner, and the other unit's side stands closer to that front than the unit's own depth (the room a drawer needs to pull out). Message: "W600's front is behind the side of W900 at the corner of Wall A and Wall B. 350 mm of it can't open: move W600 along Wall A until its front is clear."
+  - Fix "Move clear of corner": the nearest spot along its own wall where its front starts past the other unit's front, plus the clearance if the other front starts right there (so the move doesn't make a clash). Clear of its band and, above base, of windows. If no spot is safe there is no button and the message ends "There is no free spot on Wall A where its front is clear."
+  - **The old corner rule is merged in.** "No corner solution" (base units on both walls, no BC1000) and "blind side facing away" are both this case, now Blocked rather than a warning. Their fixes are kept after "Move clear of corner": "Replace B600 on Wall A with BC1000 in the corner" and "Make the blind side right". One hidden-front message per unit per corner (the nearest neighbour), and no clash message for a unit whose front is hidden. A BC1000 with no blind side is left to the blind-side rule.
+- **Case b), handle clash (`corner-clash`).** Neither front is hidden, and each front starts less than the clearance past the other unit's front. Blocked if either unit is tall, a Warning otherwise. Message: "Handles clash where BC1000 and BD600 meet at the corner of Wall A and Wall B. The fronts need 50 mm between them: add a corner filler."
+  - Fix "Add corner filler" (new `addCornerFiller` fix action, `src/domain/fixes.ts`): a FIL "Filler panel" at the clearance width, and the unit moves along its wall so its front starts the clearance past the other front (by the clearance width when they touch). Units in the same layer it would run into are pushed on. It is tried first on the unit that already stands off the other (the filler fills that gap), otherwise on the unit nearer the corner: a blind corner unit is pulled out of the corner with the filler behind it. Only one "Add corner filler" is shown: the first that the engine proves safe. If neither works there is no button and the message ends "Neither Wall A nor Wall B has room to move a unit 50 mm along."
+  - The leftover-gap rule leaves a gap inside a clash to this rule, so it doesn't offer "Add a 20 mm filler", which would close the gap and leave the handles clashing.
+- **Clearance.** `CORNER_CLEARANCE_MM = { handle: 50, handleless: 50 }`, from the shutter type ("Handleless profile" or anything else); a pair uses the larger. **TO CONFIRM WITH MAKWANA** (open items).
+- **Blocked means what it meant.** Both rules are in `PLACEMENT_RULES`, so the drag preview, R / Shift+R, the Move list and the Wall picker (`wallsUnitFits`) agree with the drop. No new severity; a blocked corner hides Review Quote and the PDF as before.
+- **"Say why" when there is no fix.** A rule result can carry `noFixReason` (`{ label, reason }`); when no safe fix with that label is kept, the reason is added to the message.
+- **Sample design.** The A/B corner had both cases: BD600's drawers started right at BC1000's door (warning), and W600's front was behind W900's side (blocked). Now: BC1000 is pulled 50 mm out of the corner (A 2150) with a 50 mm corner filler behind it (A 3150), the filler before it is 50 mm (A 2100), and W600 is at A 2200, clear of W900 and just past the window. Still 14 units; all checks pass.
+- **Demo script and brief.** New step after the first BD600 on wall B: the amber note "Handles clash where BC1000 and BD600…", click "Add corner filler": BC1000 moves to 2150, a 50 mm filler goes in at A 3150. The later filler step is now "50 mm gap … Add a 50 mm filler" (was 100). The Quote step checks the two "Filler panel" lines on Wall A (50 × 720 × 20).
+- **Behaviour changes to check by hand.**
+  - A base unit butted into a corner next to another base unit is now Blocked (was a warning), as is any wall unit, loft or tall unit whose front is behind a neighbour's side.
+  - A corner where both runs stop short with room between the fronts gets no message (the old rule warned "no corner solution" for any base units within 1000 mm of the corner).
+  - In the sample design HU900 can no longer go to Wall C: anywhere on C it would stand in front of the T600OM's doors at the B/C corner. The Move list, R and the Wall picker offer A and H only; R from wall A goes to H.
+- **Tests.**
+  - Unit (`src/domain/rules/corner.test.ts`, 17): the band table; base next to a wall unit, loft next to a wall unit (no clash); two lofts; wall units hidden and moved clear to A 2200; a base unit and a wall unit in front of a tall unit's doors, and one a unit's depth away (clear); no spot, with the reason; one message for a plain base corner, no gap or clash too; refused when placed, and the fast check agrees; the BC1000/BD600 warning and its filler; passes at the clearance; the run pushed along on B when A is full; the old sample with no room on either wall; tall blocked, refused, fast check, fixed; the 20 mm gap left to the clash rule; the filler priced as a FIL quote line; the clearance constants; the sample clean. Updated: the two old corner tests (now Blocked), the corner anchors, the sample's BC1000 position, the quote's base lines, the hob unit's turn (H, not C) and its fit list (A, H). Store: the tall unit refused, then placed with the filler as one undo step; the base unit's warning fix.
+  - e2e (`e2e/corners.spec.ts`, both sizes): a) blocked, "Move clear of corner" places it at A 1990; b) a tall unit blocked, "Add corner filler" places it with BC1000 at 2150 and the filler at A 3150; b) a base unit warned, fixed, and the Quote lists the filler; a base unit and a wall unit in the corner: no card, all checks passed. The main script has the new step. The drag helpers moved to `e2e/drag.ts`.
+- **Checks.** `npm test` 245/245, `tsc` and `lint` clean, build passes (`/design` 346 kB, `/quote` 313 kB, `/setup` 311 kB, shared 237 kB). `npm run e2e`: 72 passed, 2 skipped (automatic performance mode), across both sizes: 64 plus the four corner tests at each size. The two ✘ lines in the output are the console guard's expected-failure self-check, which counts as passed.

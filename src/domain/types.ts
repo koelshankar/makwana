@@ -317,6 +317,11 @@ export type FixAction =
   | { type: "replace"; placementId: string; moduleCode: string }
   | { type: "replaceAndMove"; placementId: string; moduleCode: string; offsetMm: number }
   | { type: "addFiller"; wallId: string; layer: Layer; offsetMm: number; widthMm: number }
+  /**
+   * A corner filler: moves a unit along its wall to `offsetMm` (pushing on any unit in its layer it
+   * would run into) and puts a FIL "Filler panel" `widthMm` wide at `fillerOffsetMm`, as one action.
+   */
+  | { type: "addCornerFiller"; placementId: string; offsetMm: number; fillerOffsetMm: number; widthMm: number }
   | { type: "resize"; placementId: string; widthMm: number }
   | { type: "remove"; placementId: string }
   | { type: "setShutterType"; placementId: string; shutterTypeId: string }
@@ -350,4 +355,6 @@ export interface CheckResult {
   message: string;
   fixes: Fix[];
   anchor?: Anchor;
+  /** Why a fix isn't offered: when no safe fix labelled `label` is kept, `reason` is added to the message. */
+  noFixReason?: { label: string; reason: string };
 }

@@ -45,10 +45,13 @@ describe("anchors", () => {
     expect(gap.anchor).toEqual({ wallId: "B", layer: "base", offsetMm: 1160, widthMm: 60 });
   });
 
-  it("corners are anchored to the corner square on the first wall", () => {
-    const p = project([unit("a", "B600", "A", 2600, 600), unit("b", "B600", "B", 0, 600)]);
-    const corner = runRawChecks(p, catalogue).find((r) => r.ruleId === "corner" && r.status !== "pass")!;
+  it("a hidden front is anchored to the part of it behind the other unit; a clash to the corner on the first wall", () => {
+    const hidden = project([unit("a", "B600", "A", 2600, 600), unit("b", "B600", "B", 560, 600)]);
+    const corner = runRawChecks(hidden, catalogue).find((r) => r.ruleId === "corner" && r.status !== "pass")!;
     expect(corner.anchor).toEqual({ wallId: "A", layer: "base", offsetMm: 2640, widthMm: 560 });
+    const clash = project([unit("bc", "BC1000", "A", 2200, 1000, "base", { blindSide: "right" }), unit("b", "BD600", "B", 560, 600)]);
+    const r = runRawChecks(clash, catalogue).find((x) => x.ruleId === "corner-clash" && x.status !== "pass")!;
+    expect(r.anchor).toEqual({ wallId: "A", layer: "base", offsetMm: 2590, widthMm: 610 });
   });
 
   it("unit issues are anchored to the unit; fitted appliances to their host; the chimney to itself", () => {
