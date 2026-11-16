@@ -1,6 +1,6 @@
 "use client";
 
-import { Maximize2, Minus, Plus, RotateCcw, RotateCw, X } from "lucide-react";
+import { Minus, Plus, Presentation, RotateCcw, RotateCw, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ import { finishGroup, type FinishGroup } from "@/domain/finish-defaults";
 import type { Project } from "@/domain/types";
 import type { SceneApi, SceneGhost, ViewPreset } from "@/components/three/kitchen-scene";
 import { SceneBoundary } from "@/components/three/scene-boundary";
+import { FULL_VIEW_CLASS, FullViewButton, useFullView } from "@/components/shell/full-view";
 import { Segmented, WallHeightToggle } from "@/components/three/wall-height-toggle";
 import { cn } from "@/lib/utils";
 import { projectStore, useBlockedIds, useProjectStore } from "@/store/project-store";
@@ -73,6 +74,8 @@ export function ThreePanel() {
   const blocked = useBlockedIds();
   const outcome = useInteraction((s) => s.outcome);
   const api = useRef<SceneApi>(null);
+  // Full screen keeps the salesperson's view (preset, selection, wall mode, labels); Show customer is the customer's.
+  const fullView = useFullView();
   /** The preset the view is on; cleared by a quarter turn. */
   const [preset, setPreset] = useState<ViewPreset | null>("3d");
   const items = useMemo(() => legend(project), [project]);
@@ -99,6 +102,7 @@ export function ThreePanel() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }, [setCustomerView]);
   const showCustomer = () => {
+    if (fullView.on) fullView.exit(true);
     setCustomerView(true);
     document.documentElement.requestFullscreen?.().catch(() => {});
   };
@@ -125,11 +129,13 @@ export function ThreePanel() {
     <section
       data-three-panel
       data-customer={customer || undefined}
-      className={cn("flex min-w-0 flex-col bg-[#f1efeb]", customer ? "fixed inset-0 z-50" : "relative flex-1")}
+      data-full-view={(fullView.on && !customer) || undefined}
+      className={cn("flex min-w-0 flex-col bg-[#f1efeb]", customer ? "fixed inset-0 z-50" : fullView.on ? FULL_VIEW_CLASS : "relative flex-1")}
     >
       <header className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-mk-line bg-[#f1efeb] px-4">
         <div className="flex min-w-0 items-baseline gap-2.5">
-          <h2 className="shrink-0 text-[15px] font-semibold">{customer ? project.name : "3D view"}</h2>
+          {/* Below 1440 px the Design header needs the room for the wall-height and view buttons. */}
+          <h2 className={cn("shrink-0 text-[15px] font-semibold", !customer && "max-[1439px]:sr-only")}>{customer ? project.name : "3D view"}</h2>
           {customer && <span className="truncate text-[12.5px] text-mk-muted">{project.siteAddress}</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -140,16 +146,19 @@ export function ThreePanel() {
               Exit
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={showCustomer}
-              aria-label="Show customer"
-              title="Show customer: full-screen 3D"
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-mk-line bg-mk-panel px-2 text-[12.5px] font-medium hover:bg-mk-subtle"
-            >
-              <Maximize2 className="size-3.5" />
-              <span className="hidden min-[1500px]:inline">Show customer</span>
-            </button>
+            <>
+              <FullViewButton on={fullView.on} onToggle={fullView.toggle} />
+              <button
+                type="button"
+                onClick={showCustomer}
+                aria-label="Show customer"
+                title="Show customer: full-screen 3D"
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-mk-line bg-mk-panel px-2 text-[12.5px] font-medium hover:bg-mk-subtle"
+              >
+                <Presentation className="size-3.5" />
+                <span className="hidden min-[1500px]:inline">Show customer</span>
+              </button>
+            </>
           )}
         </div>
       </header>

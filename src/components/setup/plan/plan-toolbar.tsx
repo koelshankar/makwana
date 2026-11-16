@@ -1,11 +1,12 @@
 "use client";
 
-import { Expand, Maximize, Minus, MoveHorizontal, PenLine, Plus, SquareDashed, Undo2 } from "lucide-react";
+import { Expand, Minus, MoveHorizontal, PenLine, Plus, SquareDashed, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { projectStore, useProjectStore } from "@/store/project-store";
+import { FullViewButton } from "@/components/shell/full-view";
 import { addDuctBox } from "../features-section";
 import { useSetupUi, type Tool } from "../setup-ui";
 
@@ -34,7 +35,7 @@ function ToolButton({ active, onClick, children, label }: { active?: boolean; on
   );
 }
 
-export function PlanToolbar({ onFullscreen }: { onFullscreen: () => void }) {
+export function PlanToolbar({ fullView }: { fullView: { on: boolean; toggle: () => void } }) {
   const tool = useSetupUi((s) => s.tool);
   const setTool = useSetupUi((s) => s.setTool);
   const canUndo = useProjectStore((s) => s.past.length > 0);
@@ -93,21 +94,7 @@ export function PlanToolbar({ onFullscreen }: { onFullscreen: () => void }) {
           </TooltipTrigger>
           <TooltipContent>Undo (⌘Z)</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label="Full screen"
-                onClick={onFullscreen}
-                className="flex size-[34px] items-center justify-center rounded-lg text-mk-ink hover:bg-mk-subtle"
-              />
-            }
-          >
-            <Maximize className="size-[18px]" />
-          </TooltipTrigger>
-          <TooltipContent>Full screen</TooltipContent>
-        </Tooltip>
+        <FullViewButton on={fullView.on} onToggle={fullView.toggle} className="size-[34px]" />
       </div>
       {HINTS[tool] && (
         <div className="absolute top-[58px] rounded-full bg-mk-ink px-3.5 py-1 text-[12px] whitespace-nowrap text-white">

@@ -145,3 +145,70 @@ test.describe("Feedback 1 · item 4: wall labels on the Design 3D floor", () => 
     await expect(page.locator("[data-print-3d]")).toHaveAttribute("src", /^data:image\/png;base64,/);
   });
 });
+
+test.describe("Feedback 1 · item 5: full screen opens the active view", () => {
+  // Playwright's Chrome refuses the browser's full screen (as embedded browsers do), which is what
+  // made the old button do nothing (and throw "not granted"). The view must fill the window anyway.
+  const fillsWindow = async (page: Page, view: Locator) => {
+    const box = (await view.boundingBox())!;
+    const vp = page.viewportSize()!;
+    expect([box.x, box.y, box.width, box.height]).toEqual([0, 0, vp.width, vp.height]);
+  };
+
+  test("Room Setup: the plan fills the screen, its menus still open, Esc and the button close it", async ({ page }) => {
+    await open(page, "/setup");
+    await resetDemo(page);
+    const plan = page.locator("section").filter({ has: page.getByRole("img", { name: "Room plan" }) });
+    await page.getByRole("button", { name: "Full screen" }).click();
+    await expect(plan).toHaveAttribute("data-full-view", "true");
+    await fillsWindow(page, plan);
+    await expect(page.getByRole("img", { name: "Room plan" })).toBeVisible();
+    // Menus portal outside the plan; they still show over it.
+    await page.getByRole("button", { name: "Column / beam / duct" }).click();
+    await expect(page.getByRole("menuitem", { name: "Column" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menuitem", { name: "Column" })).toHaveCount(0);
+    await expect(plan, "Esc closed the menu, not the full screen").toHaveAttribute("data-full-view", "true");
+    await page.keyboard.press("Escape");
+    await expect(plan).not.toHaveAttribute("data-full-view", /.*/);
+
+    await page.getByRole("button", { name: "Full screen" }).click();
+    await expect(plan).toHaveAttribute("data-full-view", "true");
+    await page.getByRole("button", { name: "Exit full screen" }).click();
+    await expect(plan).not.toHaveAttribute("data-full-view", /.*/);
+  });
+
+  test("Design: the plan or elevation, and the 3D view on its preset (Top or 3D)", async ({ page }) => {
+    await open(page, "/setup");
+    await resetDemo(page);
+    await loadSample(page);
+    await stepper(page, "Design").click();
+
+    // The views panel opens whichever tab is active: the plan, then a wall inside full screen.
+    const views = page.locator("[data-views-panel]");
+    await page.getByRole("tab", { name: "Plan", exact: true }).click();
+    await views.getByRole("button", { name: "Full screen" }).click();
+    await expect(views).toHaveAttribute("data-full-view", "true");
+    await fillsWindow(page, views);
+    await expect(views.getByRole("img", { name: "Plan with units" })).toBeVisible();
+    await views.getByRole("tab", { name: "Wall B", exact: true }).click();
+    await expect(views.locator('[data-elevation="B"]')).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(views).not.toHaveAttribute("data-full-view", /.*/);
+
+    // The 3D panel opens with its current preset, salesperson controls and wall letters kept.
+    const panel = page.locator("[data-three-panel]");
+    const presets = panel.getByRole("radiogroup", { name: "View" });
+    await presets.getByRole("radio", { name: "Top" }).click();
+    await panel.getByRole("button", { name: "Full screen" }).click();
+    await expect(panel).toHaveAttribute("data-full-view", "true");
+    await fillsWindow(page, panel);
+    await expect(presets.getByRole("radio", { name: "Top" })).toHaveAttribute("aria-checked", "true");
+    await expect(panel.locator("canvas[data-scene-ready]")).toHaveAttribute("data-wall-labels", "A,B,C,D,E,F,G,H");
+    await expect(panel).not.toHaveAttribute("data-customer", /.*/);
+    await presets.getByRole("radio", { name: "3D" }).click();
+    await panel.getByRole("button", { name: "Exit full screen" }).click();
+    await expect(panel).not.toHaveAttribute("data-full-view", /.*/);
+    await expect(presets.getByRole("radio", { name: "3D" })).toHaveAttribute("aria-checked", "true");
+  });
+});

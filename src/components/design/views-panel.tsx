@@ -2,6 +2,7 @@
 
 import { Minus, Plus } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { FULL_VIEW_CLASS, FullViewButton, useFullView } from "@/components/shell/full-view";
 import { cn } from "@/lib/utils";
 import { projectStore, useProjectStore } from "@/store/project-store";
 import { DesignPlan } from "./design-plan";
@@ -18,6 +19,8 @@ export function ViewsPanel() {
   const { setDesignTab, showWall, setElevationZoom } = projectStore.getState();
   const wall = walls.find((w) => w.id === active) ?? walls[0];
   const containerRef = useRef<HTMLElement>(null);
+  // Full screen shows whichever tab is active (plan or a wall); the tabs still switch inside it.
+  const fullView = useFullView();
   const tabsRef = useRef<HTMLDivElement>(null);
 
   // Keep the active tab in view when selection switches walls.
@@ -26,7 +29,12 @@ export function ViewsPanel() {
   }, [tab, wall?.id]);
 
   return (
-    <section ref={containerRef} className="relative flex min-w-0 flex-1 flex-col border-r border-mk-line bg-mk-panel">
+    <section
+      ref={containerRef}
+      data-views-panel
+      data-full-view={fullView.on || undefined}
+      className={cn("flex min-w-0 flex-1 flex-col border-r border-mk-line bg-mk-panel", fullView.on ? FULL_VIEW_CLASS : "relative")}
+    >
       <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-mk-line px-3">
         <div ref={tabsRef} role="tablist" aria-label="Views" className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto rounded-xl bg-mk-subtle p-1 [scrollbar-width:none] max-[1439px]:[mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]">
           {[{ id: "plan", label: "Plan" }, ...walls.map((w) => ({ id: w.id, label: `Wall ${w.id}` }))].map((t) => {
@@ -48,10 +56,11 @@ export function ViewsPanel() {
             );
           })}
         </div>
-        {/* Narrow screens give the wall tabs the room; the drawing names its wall anyway. */}
-        <span className="num hidden shrink-0 text-[11px] tracking-[0.12em] text-mk-faint uppercase min-[1440px]:inline">
+        {/* Narrow screens give the wall tabs the room (with the full-screen button, below 1600 px); the drawing names its wall anyway. */}
+        <span className="num hidden shrink-0 text-[11px] tracking-[0.12em] text-mk-faint uppercase min-[1600px]:inline">
           {tab === "plan" ? "Plan · top view" : wall ? `Elevation · ${wall.lengthMm} × ${ceiling}` : ""}
         </span>
+        <FullViewButton on={fullView.on} onToggle={fullView.toggle} />
       </header>
 
       {tab === "plan" || !wall ? <DesignPlan /> : <Elevation key={wall.id} wallId={wall.id} />}

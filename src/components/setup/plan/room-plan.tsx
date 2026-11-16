@@ -5,6 +5,8 @@ import { roomOutline, wallFrames, wallToWorld, worldToWall, type WallFrame } fro
 import { closingHint, rectInsidePolygon, validateRoom } from "@/domain/room-validation";
 import type { Feature, Point } from "@/domain/types";
 import { WALL_THICKNESS_MM } from "@/domain/zones";
+import { FULL_VIEW_CLASS, useFullView } from "@/components/shell/full-view";
+import { cn } from "@/lib/utils";
 import { mm, snap10 } from "@/lib/room-format";
 import { projectStore, useProjectStore, type NewFeature } from "@/store/project-store";
 import { FeatureForm } from "../feature-form";
@@ -65,7 +67,7 @@ export function RoomPlan() {
   const selectedFeatureId = useSetupUi((s) => s.selectedFeatureId);
   const { selectWall, selectFeature, setTool, editFeature } = useSetupUi.getState();
 
-  const sectionRef = useRef<HTMLElement>(null);
+  const fullView = useFullView();
   const walls = room.walls;
   const fit = useMemo(() => fitBox({ ...room, walls }), [walls]); // eslint-disable-line react-hooks/exhaustive-deps
   const frames = useMemo(() => wallFrames(room), [room]);
@@ -232,7 +234,7 @@ export function RoomPlan() {
   const cursor = drag ? "grabbing" : tool === "select" || tool === "drawWall" ? "grab" : "crosshair";
 
   return (
-    <section ref={sectionRef} className="relative flex min-w-0 flex-1 flex-col bg-mk-canvas">
+    <section className={cn("flex min-w-0 flex-1 flex-col bg-mk-canvas", fullView.on ? FULL_VIEW_CLASS : "relative")} data-full-view={fullView.on || undefined}>
       <div className="flex items-center justify-between px-8 pt-4">
         <div className="flex items-baseline gap-3">
           <h1 className="text-[17px] font-semibold">Room plan</h1>
@@ -246,14 +248,7 @@ export function RoomPlan() {
         />
       </div>
 
-      <PlanToolbar
-        onFullscreen={() => {
-          const el = sectionRef.current;
-          if (!el) return;
-          if (document.fullscreenElement) void document.exitFullscreen();
-          else void el.requestFullscreen();
-        }}
-      />
+      <PlanToolbar fullView={fullView} />
 
       <div ref={boxRef} className="relative min-h-0 flex-1">
         <svg
