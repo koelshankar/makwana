@@ -118,8 +118,9 @@ Twelve of the thirteen rows, at both sizes. "WebGL off" is not written: it needs
 - Section 7 still needs a person for: WebGL off (Chrome restart), automatic performance mode on a slow machine, the native print dialog and saved PDF, real full screen, and the icon's look.
 - #1: install, build and run `npm start` once offline on the demo laptop.
 - **Same build on both Macs** (Feedback 2, item 1): a project saved after a wall was drawn from a free end carries `gapMm` or `room.start`. An older build can't read it and loads the empty Mehta room with "couldn't be opened".
-- **TO CONFIRM WITH MAKWANA**: the corner handle clearance (Feedback 2, item 4). `CORNER_CLEARANCE_MM` in `src/domain/rules/corner.ts` is 50 mm for "Standard with handle" and 50 mm for "Handleless profile". Both are placeholders, not from Makwana's hardware spec. The corner filler uses the existing FIL "Filler panel" (1–100 mm), so a figure over 100 mm needs a change.
-- Shared JS grew from 195 kB to 233 kB: the error pages pull the project store into the root chunk.
+- **TO CONFIRM WITH MAKWANA**: the corner handle clearance (Feedback 2, item 4). `CORNER_CLEARANCE_MM` in `src/domain/rules/corner.ts` is 50 mm for "Standard with handle" and 50 mm for "Handleless profile". Both are placeholders, not from Makwana's hardware spec. The corner filler uses the existing FIL "Filler panel" (1–100 mm), so a figure over 100 mm needs a change. Since 2026-11-17 (step 1) the same figure is also the handle allowance in a door's swing (door width + clearance), so it now decides when a door next to a corner is Blocked too.
+- **TO CONFIRM WITH MAKWANA**: hinge sides at a corner (step 1). The catalogue has no hinge side. The hidden-front rule assumes double doors hinge at the unit's two ends, and a single door (B300, B450, BC1000's door) is hinged on whichever side lets it open. Nothing in the quote or PDF tells the factory which side that is.
+- Shared JS grew from 195 kB to 239 kB: the error pages pull the project store into the root chunk (233 kB), then Feedback 1 and 2 (239 kB).
 
 ## Decisions
 
@@ -362,17 +363,94 @@ Also written into `docs/PLAN-wall-start.md` ("Decisions 2026-11-16"). Build orde
   - After a draw it moves to the new wall's far end; after a join, back to the default.
   - Esc, Done, or clicking the picked handle again clears it. If an undo joins the picked end, the default is used.
 - **UI.**
-  - While adding walls, each free end is a handle: 10 px, accent ring, a 12 px hit area, bigger on hover, with a tooltip such as "Start from the end of Wall B". The current start is filled.
-  - The panel reads "Wall I · from the start of Wall D · pick a direction and type its length". A dashed preview shows the new wall at the typed length.
+  - While adding walls, each free end is a handle: 10 px, accent ring, a 12 px hit area, bigger on hover, with a tooltip such as "Start from the end of Wall B" (since step 2: "Start from Wall B's free end"). The current start is filled.
+  - The panel reads "Wall I · from the start of Wall D · pick a direction and type its length" (since step 2: "Wall I · from Wall D's free end · …"). A dashed preview shows the new wall at the typed length.
   - A closed room with no gaps shows no handles, and the panel says "The room is closed. Delete a wall to open it."
 - **Behaviour changes to check by hand.**
   - Add wall in a closed room with no gaps no longer appends a wall (that used to open the room at Wall A's start). Delete a wall first.
   - The right-angle check no longer compares a gap with its neighbours, only walls that meet.
   - "Runs into" can flag a room that used to pass if two walls touched or crossed. No seed or template does.
-  - "Start" and "end" of a wall in the panel and tooltips follow the wall's drawing direction (the arrow in the walls list), which a salesperson may not think about.
+  - "Start" and "end" of a wall in the panel and tooltips follow the wall's drawing direction (the arrow in the walls list), which a salesperson may not think about. **Fixed 2026-11-17 (step 2):** ends are named by what meets them.
 - **Tests.**
   - Unit (`src/domain/wall-ends.test.ts`, 14): free ends for a closed room, a gap, an open chain, two gaps, a gap at A; the default end; drawing from each of the four kinds of end leaves every old vertex and wall frame unchanged; joins from either side give a closed, valid room; past the gap's end: "runs into", no join; an L-shaped gap that Close gap fills; a drawn-into gap that can't be closed straight; the inside corner made by a drawn wall; save validation of the new fields. `open-segments.test.ts` adds the two new gap fields.
   - Store: a draw is one undo step, its letter skips the gap's, and a join closes the room. No free end means nothing is drawn. Draw wall leaves a drawn-into gap alone; Close room and Close gap fill an L-shaped gap in one step. A project saved before this change (`src/store/fixtures/save-2026-11-16-before-wall-ends.json`, written by the build before it: Walls C and G deleted, one unit) loads unchanged with no notice, and its gaps work with the new tools.
   - Item 4 again: all corner unit and e2e tests re-run after item 1 and pass. A new unit test draws Wall I back from D's start (the clicked end) to close C's gap. A BC1000 and a BD600 at the new B/I corner give the clash warning and its filler, and two base units there give the hidden-front block.
   - e2e (`e2e/wall-ends.spec.ts`, both sizes): click D's start, draw east 600. The wall runs from (2200, 2400) to D's start, sits in the list after the gap, the other walls are unchanged, the next start is the new wall's far end, and Esc goes back to the default. Clicking the joined A/B corner changes nothing (no handle, same start, same walls). Drawing west 1600 from B's end closes the gap: "Room closed · 8 walls", the new wall's outline is exactly the old Wall C's, Start Designing opens Design, and the tabs read A B I D E F G H.
 - **Checks.** `npm test` 264/264, `tsc` and `lint` clean, build passes (`/design` 348 kB, `/quote` 315 kB, `/setup` 313 kB, shared 239 kB). `npm run e2e`: 78 passed, 2 skipped (automatic performance mode), across both sizes: 72 plus the three wall-end tests at each size. The two ✘ lines are the console guard's expected-failure self-check.
+
+# Before the merge, 2026-11-17
+
+Branch: `feedback-1` (continued). One commit per step, every gate before each commit. Merged into `main` afterwards (see "Merge" below).
+
+| Step | Status | Commit |
+|---|---|---|
+| 1 Hidden-front threshold for door units | Done (rule changed) | `a02904b` |
+| 2 Wall end wording | Done | `22eeb86` |
+| 3 Docs (this section, the open items, the brief) | Done | see `git log` |
+
+## Step 1: Hidden-front threshold for door units
+
+- **Test first.** `src/domain/rules/corner.test.ts`, "a) hidden front: a door needs its swing, a drawer its depth". A door base unit on Wall A next to the A/B corner, and a B600 on Wall B whose side stands 200–300 mm past the unit's front. Each row's expected result comes from an independent sweep in the test (`doorsOpen`): each door, plus a 50 mm handle allowance, turns from shut to 90° in 0.25° steps, and the test checks whether it enters the B600. Rows: B300 520 mm from the corner at 200/250/300 mm, B450 at 250/300 mm, B600 in the corner at 200/300 mm, B600 250 mm from the corner at 250 mm.
+- **It failed** on the old rule in exactly the three rows where the door opens fully (B300 at 250 and 300, B450 at 300): all three were Blocked. So the rule changed.
+- **Rule** (`hiddenBy` and the new `doorsOpen`, `src/domain/rules/corner.ts`). A front still has to stand partly behind the neighbour's side to count (unchanged). Then:
+  - **Drawers** (BD, HU): blocked when the neighbour's side is closer than the unit's depth. Same as before.
+  - **Doors**: blocked only if a door's swing reaches the neighbour. The swing is a quarter circle round the hinge, as wide as the door plus the handle clearance (`CORNER_CLEARANCE_MM`, 50 mm, **TO CONFIRM WITH MAKWANA**). Door width is the opening part's width ÷ the number of shutters.
+  - **Hinge side.** Double doors hinge at the unit's two ends. A door hinged on the corner side swings away from the corner, so it needs (door + clearance) between the front and the neighbour's side. A door hinged on the far side swings its edge round towards the corner, so it needs that much from its hinge to the neighbour's front corner. The catalogue has no hinge side, so a single door may hinge on either side, and the rule takes the side that opens. **TO CONFIRM WITH MAKWANA** (open items).
+  - **Units with both** doors and drawers must pass both tests: the stricter wins. No catalogue unit has both today. The test uses a made-up BX600.
+- **Effect.** Only door units can now pass where they were Blocked, and only in two cases. A B600 needs 350 mm between its front and the neighbour (was 560). A single door that only just reaches behind the neighbour can open if it hinges on the far side. Drawer units, the message, the fixes ("Move clear of corner", the BC1000 and blind-side fixes) and the handle-clash rule are unchanged. Every existing corner case has the neighbour flush against the front (0 mm), so all still give the same result. The sample design and the main script are unchanged and pass every check.
+- **More tests.** B600 at 349 mm Blocked and at 350 and 400 mm clear (the sweep agrees at 349/350). BD600 Blocked at 200, 300, 400 and 559 mm, clear at 560. BX600 (doors + drawer) Blocked at 400, clear at 560. `checkPlacementFast` and `checkCandidate` agree: the B300 that opens is placed, and a B600 in the corner is refused.
+- **Checks.** `npm test` 276/276, `tsc` and `lint` clean, build passes (`/design` 348 kB, `/quote` 315 kB, `/setup` 313 kB, shared 239 kB). `npm run e2e`: 78 passed, 2 skipped (automatic performance mode). The two ✘ lines are the console guard's expected-failure self-check.
+
+## Step 2: Wall end wording
+
+- **Cause.** "Start" and "end" of a wall followed its drawing direction, which a salesperson can't see.
+- **Now.** `endName(room, end)` (pure, `src/domain/wall-ends.ts`) names an end by the wall that meets it there: "End at Wall B". An end at a gap, or at the open end of the room, is a "Free end". When both ends of one wall are free (Wall D after deleting C and E, or a room of one wall), the compass side tells them apart: "Free end (north)", "Free end (south)". `endPhrase` puts it in a sentence: "Wall D's free end", "Wall B's end at Wall A".
+- **Where.** Only free ends are named in the UI: the plan's handles, and the panel line for the picked one. Joined ends have no handle. So "End at Wall B" is in the helper and its tests, but nothing on screen shows it today.
+  - The panel: "Wall I · from Wall D's free end · pick a direction and type its length" (was "from the start of Wall D").
+  - The plan handles' tooltip and aria-label: "Start from Wall D's free end" (was "Start from the start of Wall D").
+- **Not changed.** The data model (`EndRef` still says `start` / `end`), the `data-free-end="D:start"` and `data-wall-start` test hooks, and every behaviour.
+- **Tests.** Unit (`wall-ends.test.ts`, 3): joined ends by neighbour, including A/H across the closing corner; free ends at a gap and at an open chain's ends; both ends free on D and on a single wall. e2e (`wall-ends.spec.ts`): the default panel line ("from Wall B's free end"), both handles' tooltip and aria-label, the line after clicking D's free end, and after the draw ("Wall J · from Wall I's free end").
+- **Checks.** `npm test` 279/279, `tsc` and `lint` clean, build passes (same sizes). `npm run e2e`: 78 passed, 2 skipped (automatic performance mode).
+
+## Step 3: The brief's main script against this build
+
+Each step of section 6 was checked against `e2e/main-script.spec.ts`, which asserts every "Expect" line and passes at both sizes. Two lines were out of date, both since Feedback 1, and are fixed in `docs/handover-brief.md`:
+- Customer view. The button is a presentation icon now, not an expand icon (item 5). The wall-height toggle has Auto, Cut at 450 and Full height, with Auto on (item 3).
+- Quote. The 3D view opens in Auto. The script also checks the two 50 mm "Filler panel" lines on Wall A.
+
+Also corrected in the brief: install with `npm ci` (the lockfile note), the test count, `npm run e2e`, the git history line, the 3D row, and "two tabs can overwrite each other" (a second tab has been blocked since hardening #4). Every other step matched.
+
+# feedback-1: every change, in one place
+
+Branched from `main` at `7ebdeee`. In commit order:
+
+| # | Change | Commit | Details |
+|---|---|---|---|
+| F1.3 | 3D "Auto" wall mode: walls in front hidden; the default in Show customer, on the Quote screen and in the PDF picture | `ccb1449` | Feedback 1, item 3 |
+| F1.4 | Wall letters on the Design 3D floor (removed again in F2.2) | `b01dcae` | Feedback 1, item 4 |
+| F1.5 | Full screen opens the active view (Room Setup plan, Design plan/elevation, 3D) as an overlay; Show customer gets a presentation icon | `7afe5dd` | Feedback 1, item 5 |
+| — | HARDENING: Feedback 1 section | `38fb655` | |
+| F1.1 | Deleting a wall leaves a gap; the other walls don't move; Close room | `b95cef1` | Feedback 1, item 1 |
+| F1.2 | Choose which wall a unit faces: R / Shift+R, turn button, Wall picker | `ce30c9c` | Feedback 1, item 2 |
+| — | HARDENING: Feedback 1, items 1 and 2 and the final run | `6ff5d57` | |
+| F2.2 | 3D wall labels removed completely | `8b52877` | Feedback 2, item 2 |
+| F2.3 | Move button lists the walls a unit fits on (replaces the round turn button); one fit check | `a222088` | Feedback 2, item 3 |
+| — | Plan for F2.1 and F2.4 | `bdd6395` | `docs/PLAN-wall-start.md` |
+| — | Decisions 2026-11-16; `insideCorners` helper (no behaviour change) | `690f095` | |
+| F2.4 | Inside-corner rules: hidden front Blocked; handle clash a warning (Blocked with a tall unit); "Add corner filler"; sample design fixed; one new main-script step | `c676de5` | Feedback 2, item 4 |
+| F2.1 | Start a new wall from any free end, by clicking it on the plan; gaps carry their own vector; "runs into" check | `d43ff24` | Feedback 2, item 1 |
+| S1 | Hidden front: a door needs its swing, a drawer its depth | `a02904b` | Step 1 above |
+| S2 | Wall ends named by what meets them ("Free end", "End at Wall B") | `22eeb86` | Step 2 above |
+
+**Save format.** F1.1 adds `open` on a wall; F2.1 adds `gapMm` on an open segment and `room.start`. All are additive: `PERSIST_VERSION` stays 2 and old saves load unchanged. An older build can't read a save that uses them (open items: same build on both Macs).
+
+**Behaviour changes a presenter may notice.**
+- A deleted wall leaves a dashed gap. Design stays locked until the room is closed again (Draw wall, Close gap or Close room).
+- Add wall in a closed room with no gaps does nothing; delete a wall first. The next wall starts at the clicked free end, or by default the chain's end or the first free end.
+- Tabs, lists, R / Shift+R and the Move list follow room order (A B I D…), not the alphabet.
+- R / Shift+R, the Move list and the Wall picker only offer walls with a free spot for the unit.
+- A base unit butted into a corner next to another base unit is Blocked (it was a warning). Two fronts meeting at a corner warn, and offer "Add corner filler". A door unit with room to swing is not Blocked (S1).
+- 3D: Auto wall mode in Show customer, on the Quote screen and in the PDF; Design keeps Cut at 450. No wall labels in 3D.
+- Full screen fills the window, and also asks the browser for full screen.
+
+**Checks on `feedback-1` before the merge** (after S2): `npm test` 279/279, `tsc` and `lint` clean, build passes, `npm run e2e` 78 passed and 2 skipped (automatic performance mode), across both sizes.
