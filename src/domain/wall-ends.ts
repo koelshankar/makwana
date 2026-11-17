@@ -51,6 +51,41 @@ export function freeEnds(room: Room): FreeEnd[] {
   return out;
 }
 
+const COMPASS: Record<Heading, string> = { N: "north", E: "east", S: "south", W: "west" };
+
+/** The standing wall that meets this end, if any. */
+function neighbourAt(room: Room, end: EndRef): Wall | null {
+  const walls = room.walls;
+  const n = walls.length;
+  const i = walls.findIndex((w) => w.id === end.wallId);
+  if (i < 0) return null;
+  const closed = isChainClosed(room);
+  const j = end.side === "end" ? i + 1 : i - 1;
+  const other = j >= 0 && j < n ? walls[j] : closed ? walls[(j + n) % n] : undefined;
+  return other && !other.open && other.id !== end.wallId ? other : null;
+}
+
+/**
+ * What a salesperson calls a wall's end. "Start" and "end" follow the drawing direction, which nobody
+ * sees, so an end is named by the wall that meets it ("End at Wall B"), or "Free end". When both ends
+ * of a wall are free, the compass side tells them apart ("Free end (north)").
+ */
+export function endName(room: Room, end: EndRef): string {
+  const next = neighbourAt(room, end);
+  if (next) return `End at Wall ${next.id}`;
+  const other: EndRef = { wallId: end.wallId, side: end.side === "start" ? "end" : "start" };
+  if (neighbourAt(room, other)) return "Free end";
+  const wall = room.walls.find((w) => w.id === end.wallId);
+  if (!wall) return "Free end";
+  return `Free end (${COMPASS[end.side === "end" ? wall.heading : OPPOSITE[wall.heading]]})`;
+}
+
+/** "Wall D's free end", "Wall D's end at Wall B": an end in a sentence. */
+export const endPhrase = (room: Room, end: EndRef) => {
+  const name = endName(room, end);
+  return `Wall ${end.wallId}'s ${name[0].toLowerCase()}${name.slice(1)}`;
+};
+
 /** Where a new wall starts when no end is picked: the chain's end (as before), else the first free end. */
 export function defaultFreeEnd(room: Room): FreeEnd | null {
   const ends = freeEnds(room);

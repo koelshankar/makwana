@@ -8,7 +8,7 @@ import { isUsableProject } from "./project-validation";
 import { crossingWalls, gapClosure, roomGaps, validateRoom } from "./room-validation";
 import { emptyMehta } from "./seed";
 import type { Room } from "./types";
-import { defaultFreeEnd, drawFromEnd, freeEnds, type FreeEnd } from "./wall-ends";
+import { defaultFreeEnd, drawFromEnd, endName, endPhrase, freeEnds, type FreeEnd } from "./wall-ends";
 
 const mehta = emptyMehta.room;
 const openWall = (room: Room, ...ids: string[]): Room => ({
@@ -49,6 +49,37 @@ describe("free ends", () => {
   it("the default with no click is the chain's end, as before; otherwise the first free end", () => {
     expect(defaultFreeEnd(openChain)).toMatchObject({ wallId: "C", side: "end" });
     expect(defaultFreeEnd(gapC)).toMatchObject({ wallId: "B", side: "end" });
+  });
+});
+
+describe("end names (what the panel and the plan's tooltips say)", () => {
+  const name = (room: Room, wallId: string, side: "start" | "end") => endName(room, { wallId, side });
+
+  it("a joined end is named by the wall that meets it, whichever way the walls were drawn", () => {
+    expect(name(mehta, "B", "start")).toBe("End at Wall A");
+    expect(name(mehta, "B", "end")).toBe("End at Wall C");
+    // Wall A's start meets the last wall when the room is closed.
+    expect(name(mehta, "A", "start")).toBe("End at Wall H");
+    expect(name(mehta, "H", "end")).toBe("End at Wall A");
+  });
+
+  it("an end at a gap or at the open end of the room is a free end", () => {
+    expect(name(gapC, "B", "end")).toBe("Free end");
+    expect(name(gapC, "D", "start")).toBe("Free end");
+    expect(name(gapC, "B", "start")).toBe("End at Wall A");
+    expect(name(openChain, "A", "start")).toBe("Free end");
+    expect(name(openChain, "C", "end")).toBe("Free end");
+    expect(freeEnds(gapC).map((e) => endPhrase(gapC, e))).toEqual(["Wall B's free end", "Wall D's free end"]);
+    expect(endPhrase(mehta, { wallId: "B", side: "start" })).toBe("Wall B's end at Wall A");
+  });
+
+  it("a wall with both ends free: the compass side tells them apart", () => {
+    // C and E deleted: Wall D (450, drawn north) stands alone between two gaps.
+    const lone = openWall(mehta, "C", "E");
+    expect(name(lone, "D", "start")).toBe("Free end (south)");
+    expect(name(lone, "D", "end")).toBe("Free end (north)");
+    const single: Room = { ...mehta, walls: mehta.walls.slice(0, 1), features: [] };
+    expect([name(single, "A", "start"), name(single, "A", "end")]).toEqual(["Free end (west)", "Free end (east)"]);
   });
 });
 

@@ -45,10 +45,16 @@ test.describe("Feedback 2 · item 1: start a wall from a free end", () => {
     expect(await handles.evaluateAll((els) => els.map((e) => e.getAttribute("data-free-end")))).toEqual(["B:end", "D:start"]);
     await expect(start(page)).toHaveAttribute("data-wall-start", "B:end");
     await expect(page.locator('[data-free-end="B:end"]')).toHaveAttribute("data-current", "true");
+    // Ends are named by what meets them, not by the drawing direction ("start" / "end").
+    await expect(page.locator("[data-wall-start-text]")).toHaveText("Wall I · from Wall B's free end · pick a direction and type its length");
+    expect(await handles.evaluateAll((els) => els.map((e) => [e.getAttribute("aria-label"), e.querySelector("title")?.textContent]))).toEqual([
+      ["Start from Wall B's free end", "Start from Wall B's free end"],
+      ["Start from Wall D's free end", "Start from Wall D's free end"],
+    ]);
 
     await page.locator('[data-free-end="D:start"]').click();
     await expect(start(page)).toHaveAttribute("data-wall-start", "D:start");
-    await expect(page.locator("[data-wall-start-text]")).toHaveText("Wall I · from the start of Wall D · pick a direction and type its length");
+    await expect(page.locator("[data-wall-start-text]")).toHaveText("Wall I · from Wall D's free end · pick a direction and type its length");
     await draw(page, "East", 600);
     await page.locator("main").screenshot({ path: test.info().outputPath("drawn-from-d.png") });
 
@@ -63,6 +69,7 @@ test.describe("Feedback 2 · item 1: start a wall from a free end", () => {
     for (const id of ["Wall B", "Wall D"]) expect(after[id].slice(0, 2), id).toEqual(before[id].slice(0, 2));
     // The next wall would start from the new wall's far end; the gap left is 1000 mm.
     await expect(start(page)).toHaveAttribute("data-wall-start", "I:start");
+    await expect(page.locator("[data-wall-start-text]")).toHaveText("Wall J · from Wall I's free end · pick a direction and type its length");
     await expect(footer(page)).toContainText("The room is open between Wall B and Wall I (1000 mm).");
     // Esc goes back to the default end.
     await page.keyboard.press("Escape");

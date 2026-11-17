@@ -12,7 +12,7 @@ import { isModulePlacement, isRoomClosed, placementsOnWall } from "@/domain/geom
 import { closingHint, gapClosure, perpendicularHeadings, roomGaps } from "@/domain/room-validation";
 import { emptyMehta } from "@/domain/seed";
 import type { Heading, Wall } from "@/domain/types";
-import { startEnd } from "@/domain/wall-ends";
+import { endPhrase, startEnd } from "@/domain/wall-ends";
 import { cn } from "@/lib/utils";
 import { HEADING_NAMES, projectStore, useProjectStore, type NewWall } from "@/store/project-store";
 import { MmInput } from "./mm-input";
@@ -236,7 +236,7 @@ function AddWallFlow() {
       <div className="mb-2 text-[12px] text-mk-muted" data-wall-start-text>
         {closedRoom
           ? "The room is closed. Delete a wall to open it."
-          : `Wall ${"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").find((l) => !walls.some((w) => w.id === l))}${from ? ` · from the ${from.side} of Wall ${from.wallId}` : ""} · pick a direction and type its length`}
+          : `Wall ${"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").find((l) => !walls.some((w) => w.id === l))}${from ? ` · from ${endPhrase(room, from)}` : ""} · pick a direction and type its length`}
       </div>
       <div className="flex items-center gap-1.5">
         {(["N", "E", "S", "W"] as Heading[]).map((h) => {

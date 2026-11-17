@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { headingVector, isRoomClosed, roomOutline, wallFrames, wallToWorld, worldToWall, type WallFrame } from "@/domain/geometry";
 import { closingHint, gapClosure, rectInsidePolygon, validateRoom } from "@/domain/room-validation";
-import { freeEnds, sameEnd, startEnd } from "@/domain/wall-ends";
+import { endPhrase, freeEnds, sameEnd, startEnd } from "@/domain/wall-ends";
 import type { Feature, Point } from "@/domain/types";
 import { WALL_THICKNESS_MM } from "@/domain/zones";
 import { FULL_VIEW_CLASS, useFullView } from "@/components/shell/full-view";
@@ -354,7 +354,7 @@ export function RoomPlan() {
                 key={key}
                 role="button"
                 tabIndex={0}
-                aria-label={`Start from the ${e.side} of Wall ${e.wallId}`}
+                aria-label={`Start from ${endPhrase(room, e)}`}
                 aria-pressed={current}
                 data-free-end={key}
                 data-current={current || undefined}
@@ -376,7 +376,7 @@ export function RoomPlan() {
                   strokeWidth={2}
                   vectorEffect="non-scaling-stroke"
                 />
-                <title>{`Start from the ${e.side} of Wall ${e.wallId}`}</title>
+                <title>{`Start from ${endPhrase(room, e)}`}</title>
               </g>
             );
           })}
