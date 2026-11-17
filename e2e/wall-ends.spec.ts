@@ -76,6 +76,21 @@ test.describe("Feedback 2 · item 1: start a wall from a free end", () => {
     await expect(start(page)).toHaveAttribute("data-wall-start", "B:end");
   });
 
+  test("a wall with both ends free: they are told apart by the side of the plan they are on", async ({ page }) => {
+    await gapAtC(page);
+    await page.getByRole("button", { name: "Delete wall E" }).click();
+    await expect(page.locator('[data-open-wall="E"]')).toBeVisible();
+    // Wall D (drawn north) stands alone between the two gaps: its start is at the bottom of the plan.
+    const bottom = page.locator('[data-free-end="D:start"]');
+    const top = page.locator('[data-free-end="D:end"]');
+    await expect(bottom).toHaveAttribute("aria-label", "Start from Wall D's free end (bottom)");
+    await expect(bottom.locator("title")).toHaveText("Start from Wall D's free end (bottom)");
+    await expect(top).toHaveAttribute("aria-label", "Start from Wall D's free end (top)");
+    expect((await bottom.boundingBox())!.y, "the (bottom) end is lower on screen").toBeGreaterThan((await top.boundingBox())!.y);
+    await bottom.click();
+    await expect(page.locator("[data-wall-start-text]")).toHaveText("Wall I · from Wall D's free end (bottom) · pick a direction and type its length");
+  });
+
   test("click a joined end: no handle there, nothing happens", async ({ page }) => {
     await gapAtC(page);
     const walls = await savedWalls(page);
