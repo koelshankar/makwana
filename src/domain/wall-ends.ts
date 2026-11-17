@@ -51,7 +51,11 @@ export function freeEnds(room: Room): FreeEnd[] {
   return out;
 }
 
-const COMPASS: Record<Heading, string> = { N: "north", E: "east", S: "south", W: "west" };
+/**
+ * The side of the plan an end is on, as the salesperson sees it. The plans show no north, but they
+ * never rotate: north is always up (headingVector N is y = -1, the top of the SVG).
+ */
+const SCREEN_SIDE: Record<Heading, string> = { N: "top", E: "right", S: "bottom", W: "left" };
 
 /** The standing wall that meets this end, if any. */
 function neighbourAt(room: Room, end: EndRef): Wall | null {
@@ -68,7 +72,7 @@ function neighbourAt(room: Room, end: EndRef): Wall | null {
 /**
  * What a salesperson calls a wall's end. "Start" and "end" follow the drawing direction, which nobody
  * sees, so an end is named by the wall that meets it ("End at Wall B"), or "Free end". When both ends
- * of a wall are free, the compass side tells them apart ("Free end (north)").
+ * of a wall are free, the side of the plan tells them apart ("Free end (top)").
  */
 export function endName(room: Room, end: EndRef): string {
   const next = neighbourAt(room, end);
@@ -77,7 +81,7 @@ export function endName(room: Room, end: EndRef): string {
   if (neighbourAt(room, other)) return "Free end";
   const wall = room.walls.find((w) => w.id === end.wallId);
   if (!wall) return "Free end";
-  return `Free end (${COMPASS[end.side === "end" ? wall.heading : OPPOSITE[wall.heading]]})`;
+  return `Free end (${SCREEN_SIDE[end.side === "end" ? wall.heading : OPPOSITE[wall.heading]]})`;
 }
 
 /** "Wall D's free end", "Wall D's end at Wall B": an end in a sentence. */

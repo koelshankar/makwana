@@ -73,13 +73,13 @@ describe("end names (what the panel and the plan's tooltips say)", () => {
     expect(endPhrase(mehta, { wallId: "B", side: "start" })).toBe("Wall B's end at Wall A");
   });
 
-  it("a wall with both ends free: the compass side tells them apart", () => {
-    // C and E deleted: Wall D (450, drawn north) stands alone between two gaps.
+  it("a wall with both ends free: the side of the plan tells them apart (north is always up)", () => {
+    // C and E deleted: Wall D (450, drawn north, so up the plan) stands alone between two gaps.
     const lone = openWall(mehta, "C", "E");
-    expect(name(lone, "D", "start")).toBe("Free end (south)");
-    expect(name(lone, "D", "end")).toBe("Free end (north)");
+    expect(name(lone, "D", "start")).toBe("Free end (bottom)");
+    expect(name(lone, "D", "end")).toBe("Free end (top)");
     const single: Room = { ...mehta, walls: mehta.walls.slice(0, 1), features: [] };
-    expect([name(single, "A", "start"), name(single, "A", "end")]).toEqual(["Free end (west)", "Free end (east)"]);
+    expect([name(single, "A", "start"), name(single, "A", "end")]).toEqual(["Free end (left)", "Free end (right)"]);
   });
 });
 

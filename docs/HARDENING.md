@@ -405,6 +405,7 @@ Branch: `feedback-1` (continued). One commit per step, every gate before each co
 
 - **Cause.** "Start" and "end" of a wall followed its drawing direction, which a salesperson can't see.
 - **Now.** `endName(room, end)` (pure, `src/domain/wall-ends.ts`) names an end by the wall that meets it there: "End at Wall B". An end at a gap, or at the open end of the room, is a "Free end". When both ends of one wall are free (Wall D after deleting C and E, or a room of one wall), the compass side tells them apart: "Free end (north)", "Free end (south)". `endPhrase` puts it in a sentence: "Wall D's free end", "Wall B's end at Wall A".
+- **2026-11-17b (`fix-free-end-label`):** no screen shows north (no plan, elevation or 3D view has a compass; "North" appears only in editable wall labels and the direction buttons' screen-reader names), and the plans never rotate, so a wall's two free ends now read "Free end (top / bottom / left / right)", the side of the plan they are on, instead of "(north)" etc.
 - **Where.** Only free ends are named in the UI: the plan's handles, and the panel line for the picked one. Joined ends have no handle. So "End at Wall B" is in the helper and its tests, but nothing on screen shows it today.
   - The panel: "Wall I · from Wall D's free end · pick a direction and type its length" (was "from the start of Wall D").
   - The plan handles' tooltip and aria-label: "Start from Wall D's free end" (was "Start from the start of Wall D").
