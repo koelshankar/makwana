@@ -95,6 +95,89 @@ describe("a) hidden front", () => {
   });
 });
 
+// A front next to a corner: S on Wall A, `near` mm from the A/B corner; a B600 on Wall B whose side
+// stands `gap` mm past S's front. Wall A ends at the corner (3200), Wall B starts there.
+const besideCorner = (code: string, width: number, near: number, gap: number, cat = catalogue) =>
+  runAllChecks(project(unit("s", code, "A", 3200 - near - width, width), unit("n", "B600", "B", 560 + gap, 600)), cat).filter(
+    (r) => r.status !== "pass" && r.ruleId === "corner" && r.placementIds[0] === "s",
+  );
+
+/**
+ * Independent of the rule: sweep each door of S from shut to 90° and see whether the door, plus a
+ * 50 mm handle allowance, enters the neighbour. Plan coordinates: x along Wall A from the corner,
+ * y out from Wall A. S's front is at y = 560; the B600 fills x 0–560, y 560 + gap to 560 + gap + 600.
+ * Double doors hinge at the unit's ends; a single door may hinge on either side.
+ */
+function doorsOpen(width: number, shutters: number, near: number, gap: number): boolean {
+  const reach = width / shutters + 50;
+  const hits = (hinge: number, towards: 1 | -1) => {
+    for (let deg = 0; deg <= 90; deg += 0.25) {
+      const a = (deg * Math.PI) / 180;
+      for (let r = 0; r <= reach; r += 1) {
+        const x = hinge + towards * r * Math.cos(a);
+        const y = 560 + r * Math.sin(a);
+        if (x < 560 && y > 560 + gap && y < 560 + gap + 600) return true;
+      }
+    }
+    return false;
+  };
+  if (shutters === 1) return !hits(near, 1) || !hits(near + width, -1);
+  return !hits(near, 1) && !hits(near + width, -1);
+}
+
+describe("a) hidden front: a door needs its swing, a drawer its depth", () => {
+  // The neighbour's side 200–300 mm past the front: closer than a base unit's depth (560).
+  const cases: { code: string; width: number; shutters: number; near: number; gap: number; opens: boolean }[] = [
+    // A single 300 door, 40 mm of it in front of the neighbour, hinged on the far side.
+    { code: "B300", width: 300, shutters: 1, near: 520, gap: 200, opens: false },
+    { code: "B300", width: 300, shutters: 1, near: 520, gap: 250, opens: true },
+    { code: "B300", width: 300, shutters: 1, near: 520, gap: 300, opens: true },
+    { code: "B450", width: 450, shutters: 1, near: 520, gap: 250, opens: false },
+    { code: "B450", width: 450, shutters: 1, near: 520, gap: 300, opens: true },
+    // Double doors: the corner-side door is hinged at the corner end, so it needs 350 mm.
+    { code: "B600", width: 600, shutters: 2, near: 0, gap: 200, opens: false },
+    { code: "B600", width: 600, shutters: 2, near: 0, gap: 300, opens: false },
+    { code: "B600", width: 600, shutters: 2, near: 250, gap: 250, opens: false },
+  ];
+
+  it.each(cases)("$code $near mm from the corner, neighbour $gap mm off its front: opens fully = $opens", ({ code, width, shutters, near, gap, opens }) => {
+    expect(doorsOpen(width, shutters, near, gap)).toBe(opens); // the table is right
+    const results = besideCorner(code, width, near, gap);
+    if (opens) expect(results).toEqual([]);
+    else expect(results).toMatchObject([{ status: "blocked", placementIds: ["s", "n"] }]);
+  });
+
+  it("double doors open with the neighbour 350 mm or more off (door 300 + handle 50), not only past the depth", () => {
+    expect(doorsOpen(600, 2, 0, 349)).toBe(false);
+    expect(besideCorner("B600", 600, 0, 349)).toHaveLength(1);
+    expect(doorsOpen(600, 2, 0, 350)).toBe(true);
+    expect(besideCorner("B600", 600, 0, 350)).toEqual([]);
+    expect(besideCorner("B600", 600, 0, 400)).toEqual([]);
+  });
+
+  it("drawers still need the unit's depth (560) in front of them", () => {
+    for (const gap of [200, 300, 400, 559]) expect(besideCorner("BD600", 600, 520, gap)).toMatchObject([{ status: "blocked" }]);
+    expect(besideCorner("BD600", 600, 520, 560)).toEqual([]);
+  });
+
+  it("a unit with doors and drawers takes the stricter of the two", () => {
+    const mixed = { ...catalogue, modules: [...catalogue.modules, { ...catalogue.modules.find((m) => m.code === "B600")!, code: "BX600", fronts: { shutters: 2, drawers: 1 } }] };
+    // Doors alone would open at 400 (see above); the drawer can't.
+    expect(besideCorner("BX600", 600, 0, 400, mixed)).toMatchObject([{ status: "blocked" }]);
+    // Drawer clear at 560, and so are the doors.
+    expect(besideCorner("BX600", 600, 0, 560, mixed)).toEqual([]);
+  });
+
+  it("the drop and the fast check agree: a door that opens is placed, one that doesn't is refused", () => {
+    const p = project(unit("n", "B600", "B", 810, 600)); // 250 mm off the front
+    const opens = unit("s", "B300", "A", 3200 - 520 - 300, 300);
+    expect(checkPlacementFast(p, catalogue, opens)).toMatchObject({ status: "pass" });
+    expect(checkCandidate(p, catalogue, opens).filter((r) => r.ruleId === "corner" && r.status !== "pass")).toEqual([]);
+    const stuck = unit("s", "B600", "A", 3200 - 600, 600);
+    expect(checkPlacementFast(p, catalogue, stuck)).toMatchObject({ status: "blocked", ruleId: "corner" });
+  });
+});
+
 describe("b) handle clash", () => {
   it("warns for a BC1000 with a drawer unit butting its front, and adds a corner filler", () => {
     const p = project(BC(), unit("bd", "BD600", "B", 560, 600));

@@ -2,7 +2,9 @@
 // wall and a unit on the other can get in each other's way in two ways:
 //
 //  a) Hidden front ("corner"): part of one unit's front stands behind the other unit's side, so its
-//     doors or drawers can't open there. Blocked for every unit type. Fix: move it clear of the corner.
+//     doors or drawers can't open there. A drawer needs the unit's depth in front of it; a door needs
+//     its swing (door width plus handle, by hinge side). Blocked for every unit type. Fix: move it
+//     clear of the corner.
 //  b) Handle clash ("corner-clash"): both fronts reach the point where they meet without the
 //     clearance handles and drawers need. Blocked when either unit is tall, a warning otherwise.
 //     Fix: a corner filler (the FIL "Filler panel") at the clearance width; one unit moves along its
@@ -55,6 +57,9 @@ interface CornerUnit {
   depth: number;
   /** The part of its front that opens (a blind section doesn't); null if unknown (no blind side set). */
   opening: [number, number] | null;
+  /** Doors and drawers across that part, from the catalogue. */
+  shutters: number;
+  drawers: number;
 }
 
 export interface HiddenFront {
@@ -104,17 +109,49 @@ function cornerUnits(ctx: RuleContext, frame: WallFrame, corner: InsideCorner): 
         opening = b0 <= near ? [b1, far] : [near, b0];
       }
     }
-    out.push({ entry, placement: p, frame, atStart, near, far, depth: entry.wb.depth[1], opening });
+    out.push({ entry, placement: p, frame, atStart, near, far, depth: entry.wb.depth[1], opening, ...mod.fronts });
   }
   return out;
 }
 
-/** `hidden`'s front stands behind `by`'s side, too close to open. */
+/**
+ * Whether every door of `u` swings open to 90° without reaching `by`, whose side stands `gap` past
+ * u's front. A door needs a quarter circle in front of it, centred on its hinge, as wide as the door
+ * plus its handle (the corner clearance). In distances from the corner: `by` fills 0 to by.depth
+ * along u's wall, from `gap` out. Double doors hinge at the unit's two ends; the catalogue has no
+ * hinge side for a single door, so it may hinge on either side (the fitter takes the one that opens).
+ */
+function doorsOpen(u: CornerUnit, by: CornerUnit, gap: number): boolean {
+  const [o0, o1] = u.opening!;
+  const n = u.shutters;
+  const door = (o1 - o0) / n;
+  const reach = door + cornerClearance(u.placement.shutterTypeId);
+  // Hinge on the corner side: the door swings away from the corner and stands open at the hinge.
+  const hitsFromNear = (hinge: number) => hinge < by.depth && gap < reach;
+  // Hinge on the far side: the door's edge swings round towards the corner.
+  const hitsFromFar = (hinge: number) => Math.max(0, hinge - by.depth) ** 2 + gap ** 2 < reach ** 2;
+  if (n === 1) return !hitsFromNear(o0) || !hitsFromFar(o1);
+  for (let i = 0; i < n; i++) {
+    const hit = i < n / 2 ? hitsFromNear(o0 + i * door) : hitsFromFar(o0 + (i + 1) * door);
+    if (hit) return false;
+  }
+  return true;
+}
+
+/**
+ * How much of `hidden`'s front stands behind `by`'s side, when it can't open there; else 0. A drawer
+ * pulls straight out, so it needs the unit's depth in front of it. A door needs its swing
+ * (`doorsOpen`). A unit with both needs both.
+ */
 function hiddenBy(hidden: CornerUnit, by: CornerUnit): number {
   if (!hidden.opening || hidden.opening[1] <= hidden.opening[0]) return 0;
-  // `by` stands in front of `hidden`'s front, closer than a door or drawer needs to open (its depth).
-  if (by.near < hidden.depth || by.near - hidden.depth >= hidden.depth) return 0;
-  return Math.max(0, Math.min(hidden.opening[1], by.depth) - hidden.opening[0]);
+  if (by.near < hidden.depth) return 0; // in its footprint: the overlap rule's business
+  const behind = Math.min(hidden.opening[1], by.depth) - hidden.opening[0];
+  if (behind <= 0) return 0;
+  const gap = by.near - hidden.depth;
+  const drawersStuck = hidden.drawers > 0 && gap < hidden.depth;
+  const doorsStuck = hidden.shutters > 0 && !doorsOpen(hidden, by, gap);
+  return drawersStuck || doorsStuck ? behind : 0;
 }
 
 const analyses = new WeakMap<RuleContext, CornerAnalysis>();
