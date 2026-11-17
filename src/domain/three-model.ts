@@ -9,7 +9,7 @@ import { getAppliance, getModule } from "./catalogue";
 import {
   blindRange,
   countertopOutline,
-  isRoomClosed,
+  isChainClosed,
   LAYER_DEPTH_MM,
   roomOutline,
   roomVertices,
@@ -395,27 +395,58 @@ export function applianceParts(spec: Appliance, baseFinishId: string): Part[] {
 // Room
 
 export const CUT_HEIGHT_MM = 450;
-export type WallHeightMode = "cut" | "full";
+/**
+ * "cut": every wall stops at 450 mm. "full": full height, and the walls between the camera and
+ * the room fade. "auto": full height, and the walls between the camera and the room are hidden.
+ */
+export type WallHeightMode = "cut" | "full" | "auto";
 
 export function wallHeight(mode: WallHeightMode, room: Room): number {
   return mode === "cut" ? Math.min(CUT_HEIGHT_MM, room.ceilingHeightMm) : room.ceilingHeightMm;
+}
+
+/** How directly the camera must look through a wall (cosine) before it counts as in the way. */
+export const THROUGH_WALL_COS = 0.25;
+
+/** What `wallsInFront` needs to know about the room: each wall's inward normal and midpoint, and the room's centre. */
+export interface WallFacing {
+  normals: Record<string, Point>;
+  mids: Record<string, Point>;
+  centre: Point;
+}
+
+/**
+ * The walls between the camera and the room, which Auto hides. `viewDir` is the plan part
+ * (world x, world y) of the camera's unit viewing direction, so a steep view has a short one: a
+ * view from above (the Top preset) sees over every wall and hides none. Otherwise a wall is in
+ * the way if the camera looks through it (along its inward normal), or if it stands on the
+ * camera's side of the room centre: a duct-box or notch wall whose room face points at the
+ * camera still blocks the view of the kitchen behind it.
+ */
+export function wallsInFront(room: WallFacing, viewDir: Point, minCos = THROUGH_WALL_COS): string[] {
+  if (Math.hypot(viewDir.x, viewDir.y) <= minCos) return [];
+  return Object.keys(room.normals).filter((id) => {
+    const n = room.normals[id];
+    const m = room.mids[id];
+    const through = viewDir.x * n.x + viewDir.y * n.y > minCos;
+    const nearSide = (m.x - room.centre.x) * viewDir.x + (m.y - room.centre.y) * viewDir.y < 0;
+    return through || nearSide;
+  });
 }
 
 export interface RoomPart {
   key: string;
   box: Box;
   material: MaterialKey;
-  /** The wall it belongs to, so it fades with that wall in Full height. */
+  /** The wall it belongs to, so it fades (Full height) or hides (Auto) with that wall. */
   wallId?: string;
 }
 
-export interface RoomModel {
+export interface RoomModel extends WallFacing {
   floor: Point[];
   height: number;
   walls: RoomPart[];
   parts: RoomPart[];
-  /** Inward normal of each wall, for fading the walls between the camera and the room. */
-  normals: Record<string, Point>;
 }
 
 const WINDOW_FRAME_MM = 50;
@@ -442,14 +473,17 @@ function subtract([lo, hi]: [number, number], holes: [number, number][]): [numbe
  */
 function wallExtents(room: Room): Map<string, [number, number]> {
   const segs = wallSegments(room);
-  const frames = wallFrames(room);
-  const closed = isRoomClosed(room);
+  const frames = new Map(wallFrames(room).map((f) => [f.wallId, f]));
+  const closed = isChainClosed(room);
   const T = WALL_THICKNESS_MM;
   const out = new Map<string, [number, number]>();
   segs.forEach((s, i) => {
-    const next = i < segs.length - 1 ? segs[i + 1] : closed ? segs[0] : null;
+    if (s.open) return;
+    // A wall next to an open segment (or the open end) stops square at its end.
+    const after = i < segs.length - 1 ? segs[i + 1] : closed ? segs[0] : null;
+    const next = after && !after.open ? after : null;
     const turn = next === null ? 0 : Math.sign(next.dir.x * s.inwardNormal.x + next.dir.y * s.inwardNormal.y);
-    const f = frames[i];
+    const f = frames.get(s.wallId)!;
     const travelEndAtLength = f.origin.x === s.start.x && f.origin.y === s.start.y;
     const ext: [number, number] = [0, f.lengthMm];
     // turn > 0: convex corner, grow into the corner square; turn < 0: reflex, give way.
@@ -499,9 +533,11 @@ export function roomModel(room: Room, mode: WallHeightMode): RoomModel {
   const walls: RoomPart[] = [];
   const parts: RoomPart[] = [];
   const normals: Record<string, Point> = {};
+  const mids: Record<string, Point> = {};
 
   for (const frame of wallFrames(room)) {
     normals[frame.wallId] = frame.n;
+    mids[frame.wallId] = wallToWorld(frame, frame.lengthMm / 2);
     const [lo, hi] = extents.get(frame.wallId)!;
     const openings: { along: [number, number]; z: [number, number] }[] = [];
     for (const f of room.features) {
@@ -552,7 +588,29 @@ export function roomModel(room: Room, mode: WallHeightMode): RoomModel {
     }
   }
 
-  return { floor: roomOutline(room, 0).inner, height: H, walls, parts, normals };
+  const floor = roomOutline(room, 0).inner;
+  const xs = floor.map((p) => p.x);
+  const ys = floor.map((p) => p.y);
+  const centre = floor.length ? { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 } : { x: 0, y: 0 };
+  return { floor, height: H, walls, parts, normals, mids, centre };
+}
+
+// ---------------------------------------------------------------------------
+// Unit pose
+
+/**
+ * Where a unit stands in the 3D view: its left-back corner on the wall (world mm) and its turn
+ * about the vertical, in radians. That is the whole pose: units never tip about x or z.
+ */
+export interface UnitPose {
+  x: number;
+  y: number;
+  yaw: number;
+}
+
+export function unitPose(frame: WallFrame, offsetMm: number): UnitPose {
+  const o = wallToWorld(frame, offsetMm, 0);
+  return { x: o.x, y: o.y, yaw: Math.atan2(-frame.u.y, frame.u.x) };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { placementsOnWall } from "@/domain/geometry";
+import { catalogue } from "@/domain/catalogue";
+import { isRoomClosed, placementsOnWall, wallFrame } from "@/domain/geometry";
+import { roomGaps, validateRoom } from "@/domain/room-validation";
+import { nearestFreeLabel, nextWall, wallsUnitFits } from "@/domain/turn";
+import { unitPose } from "@/domain/three-model";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
 import { unit } from "@/domain/testing";
 import type { ModulePlacement } from "@/domain/types";
@@ -382,6 +387,213 @@ describe("undo granularity", () => {
   });
 });
 
+describe("deleting a wall leaves a gap (Feedback 1, item 1)", () => {
+  it("leaves an open segment with the wall's letter, length and heading; the others don't move", () => {
+    const store = createProjectStore(sampleDesign);
+    store.getState().removeWall("B");
+    const walls = store.getState().project.room.walls;
+    expect(walls.map((w) => w.id)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    expect(walls[1]).toEqual({ ...sampleDesign.room.walls[1], open: true });
+    expect(walls.filter((w) => w.id !== "B")).toEqual(sampleDesign.room.walls.filter((w) => w.id !== "B"));
+    // Its units and features go, as before.
+    expect(store.getState().project.modules.some((m) => m.wallId === "B")).toBe(false);
+    expect(store.getState().project.room.features.some((f) => f.kind === "beam")).toBe(false);
+  });
+
+  it("drawing a wall in the gap brings back the same letter; one undo each", () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("C");
+    store.getState().fillGap("C");
+    expect(store.getState().project.room.walls).toEqual(emptyMehta.room.walls);
+    store.getState().undo();
+    expect(store.getState().project.room.walls.find((w) => w.id === "C")?.open).toBe(true);
+    store.getState().undo();
+    expect(store.getState().project).toBe(emptyMehta);
+  });
+
+  it("Close room fills every gap and closes an open end, as one step", () => {
+    // Mehta without wall H (and its door): the chain ends 2400 mm short of where A starts.
+    const room = { ...emptyMehta.room, walls: emptyMehta.room.walls.slice(0, 7), features: emptyMehta.room.features.filter((f) => f.kind !== "door") };
+    const store = createProjectStore({ ...emptyMehta, room });
+    store.getState().removeWall("B");
+    store.getState().removeWall("E");
+    const steps = store.getState().past.length;
+    store.getState().closeRoom();
+    const walls = store.getState().project.room.walls;
+    expect(walls.some((w) => w.open)).toBe(false);
+    expect(walls.map((w) => w.id)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    expect(walls[7]).toMatchObject({ heading: "N", lengthMm: 2400 });
+    expect(walls.slice(0, 7)).toEqual(room.walls);
+    expect(store.getState().past.length).toBe(steps + 1);
+  });
+
+  it("a new wall skips letters still held by gaps; deleting the last standing wall clears the room", () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("H");
+    expect(store.getState().addWall({ heading: "W", lengthMm: 500 })).toBe("I");
+    const small = createProjectStore({ ...emptyMehta, room: { ...emptyMehta.room, walls: emptyMehta.room.walls.slice(0, 2), features: [] } });
+    small.getState().removeWall("A");
+    small.getState().removeWall("B");
+    expect(small.getState().project.room.walls).toEqual([]);
+  });
+
+  it("a template replaces gaps with the template's walls", () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("C");
+    store.getState().replaceWalls([
+      { heading: "E", lengthMm: 3600 },
+      { heading: "S", lengthMm: 2100 },
+      { heading: "W", lengthMm: 3600 },
+      { heading: "N", lengthMm: 2100 },
+    ]);
+    expect(store.getState().project.room.walls.some((w) => w.open)).toBe(false);
+    expect(store.getState().project.room.walls.map((w) => w.id)).toEqual(["A", "B", "C", "D"]);
+  });
+});
+
+describe("turning a unit to face another wall (Feedback 1, item 2)", () => {
+  const atCorner = () => {
+    const store = createProjectStore(emptyMehta);
+    const { id } = store.getState().tryPlaceModule(draft(unit("x", "B600", "A", 2600, 600)));
+    return { store, id };
+  };
+
+  it("R: the next wall, at the same corner; one undoable step; Shift+R goes back", () => {
+    const { store, id } = atCorner();
+    const steps = store.getState().past.length;
+    const res = store.getState().turnPlacement(id, 1);
+    expect(res.ok).toBe(true);
+    expect(store.getState().project.modules[0]).toMatchObject({ id, wallId: "B", offsetMm: 0, layer: "base" });
+    expect(store.getState().past.length).toBe(steps + 1);
+    store.getState().undo();
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "A", offsetMm: 2600 });
+    store.getState().redo();
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "B", offsetMm: 0 });
+    expect(store.getState().turnPlacement(id, -1).ok).toBe(true);
+    // Back on A at the A/B corner: B's offset 0 projects to A's right end.
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "A", offsetMm: 2600 });
+  });
+
+  it("blocked: nothing moves, and the first fix is 'Move to nearest free spot on Wall H'", () => {
+    const { store, id } = atCorner();
+    const before = store.getState().project;
+    const res = store.getState().turnPlacement(id, -1); // into the column in the A/H corner
+    expect(res.ok).toBe(false);
+    expect(store.getState().project).toBe(before);
+    expect(res.candidate).toMatchObject({ wallId: "H", offsetMm: 1800 });
+    const first = res.results.find((r) => r.status === "blocked")!;
+    expect(first.fixes[0]).toEqual({ label: "Move to nearest free spot on Wall H", action: { type: "move", placementId: id, wallId: "H", offsetMm: 1500 } });
+    // The card's fix places it there, as one step.
+    expect(store.getState().placeWithFix(res.candidate!, first.fixes[0]).ok).toBe(true);
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "H", offsetMm: 1500 });
+  });
+
+  it("the Wall picker uses the same logic; a wall it doesn't fit on, or its own, does nothing", () => {
+    const { store, id } = atCorner();
+    expect(store.getState().turnPlacement(id, "B").ok).toBe(true);
+    expect(store.getState().project.modules[0]).toMatchObject({ wallId: "B", offsetMm: 0 });
+    const before = store.getState().project;
+    expect(store.getState().turnPlacement(id, "D")).toMatchObject({ ok: false, reason: "no-wall" }); // 450 mm
+    expect(store.getState().turnPlacement(id, "B")).toMatchObject({ ok: false, reason: "no-wall" });
+    expect(store.getState().project).toBe(before);
+  });
+
+  it("no other wall fits: nothing moves", () => {
+    // As wide as wall A (seeded; only the turn is under test): no other wall is that long.
+    const store = createProjectStore({ ...emptyMehta, modules: [unit("x", "B600", "A", 0, 3200, "base", { isCustomSize: true })] });
+    const id = "x";
+    const before = store.getState().project;
+    expect(store.getState().turnPlacement(id, 1)).toMatchObject({ ok: false, reason: "no-wall" });
+    expect(store.getState().project).toBe(before);
+  });
+
+  it("a fitted hob turns its hob unit, and goes with it", () => {
+    const store = createProjectStore(sampleDesign);
+    const res = store.getState().turnPlacement("a-hob", 1);
+    expect(res.id).toBe("m-hob");
+    // B is full in the sample design. C has no spot either: anywhere on C a base unit would stand in
+    // front of the T600OM's doors at the B/C corner (the corner rule). So the next wall is H.
+    expect(res.candidate?.wallId).toBe("H");
+  });
+
+  it("a fitted sink's unit has nowhere else to go: it must stay by the plumbing on A", () => {
+    const store = createProjectStore(sampleDesign);
+    expect(store.getState().turnPlacement("a-sink", 1)).toMatchObject({ ok: false, id: "m-sink", reason: "no-wall" });
+  });
+
+  it("a unit moved to another wall turns about the vertical only", () => {
+    const { store, id } = atCorner();
+    const a = wallFrame(store.getState().project.room, "A");
+    store.getState().turnPlacement(id, 1);
+    const b = wallFrame(store.getState().project.room, "B");
+    const [pa, pb] = [unitPose(a, 2600), unitPose(b, 0)];
+    // A pose is position plus a yaw: nothing else to tip. A to B is a quarter turn.
+    expect(Object.keys(pa).sort()).toEqual(["x", "y", "yaw"]);
+    expect(Math.abs(Math.abs(pb.yaw - pa.yaw) - Math.PI / 2)).toBeLessThan(1e-9);
+  });
+});
+
+describe("Move, the Wall picker and R / Shift+R agree (Feedback 2, item 3)", () => {
+  // The Move button and the Wall picker both call turnPlacement(id, wallId) with a wall from
+  // wallsUnitFits; R and Shift+R call turnPlacement(id, 1 | -1). Every unit in the sample design.
+  const subjects = sampleDesign.modules.map((m) => m.id);
+  const turned = (id: string, target: 1 | -1 | string) => {
+    const store = createProjectStore(sampleDesign);
+    const res = store.getState().turnPlacement(id, target);
+    const { modules, appliances } = store.getState().project;
+    return { res, modules, appliances };
+  };
+
+  it("R / Shift+R give exactly what picking that wall gives", () => {
+    for (const id of subjects) {
+      const m = sampleDesign.modules.find((x) => x.id === id)!;
+      const fits = wallsUnitFits(sampleDesign, catalogue, m);
+      for (const dir of [1, -1] as const) {
+        const next = nextWall(sampleDesign, catalogue, m, m.wallId, dir);
+        const byKey = turned(id, dir);
+        if (!next) {
+          expect(fits, `${id}: nothing else fits`).toEqual([m.wallId]);
+          expect(byKey.res).toMatchObject({ ok: false, reason: "no-wall" });
+          continue;
+        }
+        expect(fits, `${id} ${dir}`).toContain(next);
+        expect(turned(id, next), `${id} R ${dir} vs Wall ${next}`).toEqual(byKey);
+      }
+    }
+  });
+
+  it("every wall on the list can be picked: placed, or the Blocked card leading with the nearest free spot there", () => {
+    let placed = 0;
+    let blocked = 0;
+    for (const id of subjects) {
+      const m = sampleDesign.modules.find((x) => x.id === id)!;
+      for (const wallId of wallsUnitFits(sampleDesign, catalogue, m).filter((w) => w !== m.wallId)) {
+        const { res, modules } = turned(id, wallId);
+        expect(res.reason, `${id} → ${wallId}`).toBeUndefined();
+        expect(res.candidate?.wallId).toBe(wallId);
+        if (res.ok) {
+          placed++;
+          expect(modules.find((x) => x.id === id)?.wallId).toBe(wallId);
+        } else {
+          blocked++;
+          expect(res.results.find((r) => r.status === "blocked")!.fixes[0].label).toBe(nearestFreeLabel(wallId));
+          expect(modules).toBe(sampleDesign.modules);
+        }
+      }
+    }
+    // Both outcomes happen in the sample design.
+    expect(placed).toBeGreaterThan(0);
+    expect(blocked).toBeGreaterThan(0);
+  });
+
+  it("a wall that isn't on the list is refused the same way by every path", () => {
+    // HU900 (m-hob) fits A and H in the sample design: not B (full), not C (it would stand in front of
+    // the T600OM's doors at the B/C corner) and not the short duct walls.
+    expect(wallsUnitFits(sampleDesign, catalogue, sampleDesign.modules.find((x) => x.id === "m-hob")!)).toEqual(["A", "H"]);
+    for (const wallId of ["B", "C", "D", "E", "F", "G"]) expect(turned("m-hob", wallId).res).toMatchObject({ ok: false, reason: "no-wall" });
+  });
+});
+
 describe("appliances in the store", () => {
   it("removing a host removes its fitted appliances in one step; one undo restores both", () => {
     const store = createProjectStore(sampleDesign);
@@ -549,5 +761,112 @@ describe("undo after approval", () => {
     expect(s().project.discountPct).toBe(0);
     expect(s().project.status).toBe("draft");
     expect(s().project.quote!.version).toBe(2);
+  });
+});
+
+describe("inside-corner clash in the store (Feedback 2, item 4)", () => {
+  const bc = unit("bc", "BC1000", "A", 2200, 1000, "base", { blindSide: "right" });
+  const tall = unit("t", "T600OM", "B", 560, 600, "tall", { finishId: "laminate-charcoal", shutterTypeId: "appliance-housing" });
+
+  it("a tall unit whose front meets a blind corner's is refused; Add corner filler places it with the filler, as one step", () => {
+    const store = createProjectStore({ ...emptyMehta, modules: [bc] });
+    const res = store.getState().tryPlaceModule(draft(tall));
+    expect(res.ok).toBe(false);
+    expect(store.getState().past).toHaveLength(0);
+    const clash = res.results.find((r) => r.ruleId === "corner-clash")!;
+    expect(clash.status).toBe("blocked");
+    const fix = clash.fixes.find((f) => f.label === "Add corner filler")!;
+    const placed = store.getState().placeWithFix({ ...draft(tall), id: res.id }, fix);
+    expect(placed.ok).toBe(true);
+    const p = store.getState().project;
+    expect(p.modules.map((m) => `${m.moduleCode}@${m.wallId}${m.offsetMm}+${m.widthMm}`).sort()).toEqual(["BC1000@A2150+1000", "FIL@A3150+50", "T600OM@B560+600"]);
+    expect(store.getState().past).toHaveLength(1);
+    store.getState().undo();
+    expect(store.getState().project.modules).toEqual([bc]);
+  });
+
+  it("a base drawer unit there is placed with a warning; the warning's filler fix is one step", () => {
+    const store = createProjectStore({ ...emptyMehta, modules: [bc] });
+    const res = store.getState().tryPlaceModule(draft(unit("bd", "BD600", "B", 560, 600)));
+    expect(res.ok).toBe(true);
+    const clash = res.results.find((r) => r.ruleId === "corner-clash")!;
+    expect(clash.status).toBe("warning");
+    store.getState().applyFix(clash.fixes[0]);
+    expect(store.getState().project.modules.find((m) => m.moduleCode === "FIL")).toMatchObject({ wallId: "A", offsetMm: 3150, widthMm: 50 });
+    expect(store.getState().past).toHaveLength(2);
+  });
+});
+
+describe("drawing a wall from a free end (Feedback 2, item 1)", () => {
+  const withGapC = () => {
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("C");
+    return store;
+  };
+
+  it("draws from the picked end as one undo step; the letter skips the gap's; a join closes the room", () => {
+    const store = withGapC();
+    const steps = store.getState().past.length;
+    const res = store.getState().drawWall({ wallId: "D", side: "start" }, { direction: "E", lengthMm: 600 })!;
+    expect(res).toEqual({ id: "I", far: { wallId: "I", side: "start" }, joined: false });
+    const walls = store.getState().project.room.walls;
+    expect(walls.map((w) => w.id)).toEqual(["A", "B", "C", "I", "D", "E", "F", "G", "H"]);
+    expect(walls[3]).toEqual({ id: "I", heading: "W", lengthMm: 600, label: "West" });
+    expect(store.getState().past.length).toBe(steps + 1);
+    store.getState().undo();
+    expect(store.getState().project.room.walls.map((w) => w.id)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+
+    const join = store.getState().drawWall({ wallId: "B", side: "end" }, { direction: "W", lengthMm: 1600 })!;
+    expect(join.joined).toBe(true);
+    expect(validateRoom(store.getState().project.room).ok).toBe(true);
+  });
+
+  it("with no end picked, the default end; a closed room has no free end, so nothing is drawn", () => {
+    const store = createProjectStore(emptyMehta);
+    expect(store.getState().drawWall(null, { direction: "E", lengthMm: 600 })).toBeNull();
+    expect(store.getState().past).toHaveLength(0);
+    // An end that isn't free (B's end meets C) draws nothing either.
+    expect(store.getState().drawWall({ wallId: "B", side: "end" }, { direction: "W", lengthMm: 600 })).toBeNull();
+    const gap = withGapC();
+    expect(gap.getState().drawWall(null, { direction: "W", lengthMm: 600 })).toMatchObject({ id: "I", far: { wallId: "I", side: "end" } });
+  });
+
+  it("Close gap and Close room fill a gap drawn into with right-angle walls, in one step each", () => {
+    // Wall B deleted from the empty Mehta room; walls drawn in from both sides leave an L-shaped gap.
+    const store = createProjectStore(emptyMehta);
+    store.getState().removeWall("B");
+    store.getState().drawWall({ wallId: "A", side: "end" }, { direction: "S", lengthMm: 600 });
+    store.getState().drawWall({ wallId: "I", side: "end" }, { direction: "W", lengthMm: 300 });
+    store.getState().drawWall({ wallId: "C", side: "start" }, { direction: "N", lengthMm: 600 });
+    const before = store.getState().project.room;
+    expect(roomGaps(before)).toMatchObject([{ wallId: "B", drawnInto: true, summary: "1200 mm × 300 mm" }]);
+    store.getState().fillGap("B"); // only a deleted wall's own gap can be drawn back as it was
+    expect(store.getState().project.room).toBe(before);
+    const steps = store.getState().past.length;
+    store.getState().closeRoom();
+    expect(store.getState().past.length).toBe(steps + 1);
+    const walls = store.getState().project.room.walls;
+    expect(walls.map((w) => `${w.id}${w.heading}${w.lengthMm}`)).toEqual(["AE3200", "IS600", "JW300", "BS1200", "LE300", "KS600", "CW1600", "DN450", "EW600", "FS450", "GW1000", "HN2400"]);
+    expect(isRoomClosed(store.getState().project.room)).toBe(true);
+    expect(validateRoom(store.getState().project.room).ok).toBe(true);
+    store.getState().undo();
+    store.getState().closeGap("B");
+    expect(store.getState().project.room.walls).toEqual(walls);
+  });
+
+  it("a project saved before this change loads as it is, gaps and all (no migration)", async () => {
+    const raw = readFileSync(new URL("./fixtures/save-2026-11-16-before-wall-ends.json", import.meta.url), "utf8");
+    const data = new Map([[PERSIST_KEY, raw]]);
+    const store = createProjectStore(sampleDesign, () => ({ getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v), removeItem: (k) => void data.delete(k) }));
+    await store.persist.rehydrate();
+    const saved = JSON.parse(raw).state.project;
+    expect(store.getState().ui.restoreNotice).toBeNull();
+    expect(store.getState().project).toEqual(saved);
+    const room = store.getState().project.room;
+    expect(room.start).toBeUndefined();
+    expect(roomGaps(room).map((g) => g.wallId)).toEqual(["C", "G"]);
+    // Its gaps work with the new tools: free ends at both, and drawing back from D's start closes C.
+    expect(store.getState().drawWall({ wallId: "D", side: "start" }, { direction: "E", lengthMm: 1600 })).toMatchObject({ joined: true });
+    expect(roomGaps(store.getState().project.room).map((g) => g.wallId)).toEqual(["G"]);
   });
 });

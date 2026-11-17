@@ -1,15 +1,17 @@
 "use client";
 
-import { Maximize2, Minus, Plus, RotateCcw, RotateCw, X } from "lucide-react";
+import { Minus, Plus, Presentation, RotateCcw, RotateCw, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { catalogue, getFinish, getModule } from "@/domain/catalogue";
 import { finishGroup, type FinishGroup } from "@/domain/finish-defaults";
-import type { WallHeightMode } from "@/domain/three-model";
+import { solidWalls } from "@/domain/geometry";
 import type { Project } from "@/domain/types";
 import type { SceneApi, SceneGhost, ViewPreset } from "@/components/three/kitchen-scene";
 import { SceneBoundary } from "@/components/three/scene-boundary";
+import { FULL_VIEW_CLASS, FullViewButton, useFullView } from "@/components/shell/full-view";
+import { Segmented, WallHeightToggle } from "@/components/three/wall-height-toggle";
 import { cn } from "@/lib/utils";
 import { projectStore, useBlockedIds, useProjectStore } from "@/store/project-store";
 import { ghostWorldBox, labelOf } from "./ghost";
@@ -59,51 +61,30 @@ function subscribeGhost(cb: (g: SceneGhost | null) => void) {
   return useInteraction.subscribe((s) => emit(s.ghost));
 }
 
-function Segmented<T extends string>({ value, options, onChange, label }: { value: T | null; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
-  return (
-    <div role="radiogroup" aria-label={label} className="flex shrink-0 rounded-lg bg-mk-subtle p-0.5">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={value === o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            "h-7 rounded-md px-2.5 text-[12px] font-medium whitespace-nowrap text-mk-ink-2 transition-colors",
-            value === o.value ? "bg-mk-panel text-mk-ink shadow-[0_1px_2px_rgba(28,27,25,0.08)]" : "hover:text-mk-ink",
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-const HEIGHT_OPTIONS: { value: WallHeightMode; label: string }[] = [
-  { value: "cut", label: "Cut at 450" },
-  { value: "full", label: "Full height" },
-];
-
 export function ThreePanel() {
   const project = useProjectStore((s) => s.project);
   const selectedId = useProjectStore((s) => s.ui.selectedPlacementId);
   const activeWallId = useProjectStore((s) => s.ui.activeWallId);
-  const wallHeight = useProjectStore((s) => s.ui.wallHeight);
+  const designWallHeight = useProjectStore((s) => s.ui.wallHeight);
+  const presentWallHeight = useProjectStore((s) => s.ui.presentWallHeight);
   const customer = useProjectStore((s) => s.ui.customerView);
+  // Show customer has its own wall mode, Auto by default; Design keeps the salesperson's choice.
+  const wallHeight = customer ? presentWallHeight : designWallHeight;
   const performance = useProjectStore((s) => s.settings.performanceMode);
   const autoSwitched = useProjectStore((s) => s.settings.performanceAutoSwitched);
   const blocked = useBlockedIds();
   const outcome = useInteraction((s) => s.outcome);
   const api = useRef<SceneApi>(null);
+  // Full screen keeps the salesperson's view (preset, selection, wall mode); Show customer is the customer's.
+  const fullView = useFullView();
   /** The preset the view is on; cleared by a quarter turn. */
   const [preset, setPreset] = useState<ViewPreset | null>("3d");
   const items = useMemo(() => legend(project), [project]);
   const selected = project.modules.find((m) => m.id === selectedId);
   const notPlaced = outcome?.kind === "blocked" && outcome.project === project ? labelOf(outcome.candidate) : null;
-  const wallId = activeWallId ?? project.room.walls[0]?.id;
-  const { setWallHeight, setCustomerView } = projectStore.getState();
+  const wallId = activeWallId ?? solidWalls(project.room)[0]?.id;
+  const { setCustomerView } = projectStore.getState();
+  const setWallHeight = customer ? projectStore.getState().setPresentWallHeight : projectStore.getState().setWallHeight;
 
   /** Slow frames while orbiting switch performance mode on, once per demo, with a toast. */
   const onSlowFrames = useCallback(() => {
@@ -122,6 +103,7 @@ export function ThreePanel() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }, [setCustomerView]);
   const showCustomer = () => {
+    if (fullView.on) fullView.exit(true);
     setCustomerView(true);
     document.documentElement.requestFullscreen?.().catch(() => {});
   };
@@ -148,31 +130,36 @@ export function ThreePanel() {
     <section
       data-three-panel
       data-customer={customer || undefined}
-      className={cn("flex min-w-0 flex-col bg-[#f1efeb]", customer ? "fixed inset-0 z-50" : "relative flex-1")}
+      data-full-view={(fullView.on && !customer) || undefined}
+      className={cn("flex min-w-0 flex-col bg-[#f1efeb]", customer ? "fixed inset-0 z-50" : fullView.on ? FULL_VIEW_CLASS : "relative flex-1")}
     >
       <header className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-mk-line bg-[#f1efeb] px-4">
         <div className="flex min-w-0 items-baseline gap-2.5">
-          <h2 className="shrink-0 text-[15px] font-semibold">{customer ? project.name : "3D view"}</h2>
+          {/* Below 1440 px the Design header needs the room for the wall-height and view buttons. */}
+          <h2 className={cn("shrink-0 text-[15px] font-semibold", !customer && "max-[1439px]:sr-only")}>{customer ? project.name : "3D view"}</h2>
           {customer && <span className="truncate text-[12.5px] text-mk-muted">{project.siteAddress}</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Segmented label="Wall height" value={wallHeight} options={HEIGHT_OPTIONS} onChange={setWallHeight} />
+          <WallHeightToggle value={wallHeight} onChange={setWallHeight} />
           {customer ? (
             <button type="button" onClick={exitCustomer} className="flex h-8 items-center gap-1.5 rounded-lg bg-mk-ink px-3 text-[12.5px] font-medium text-white hover:bg-mk-ink/90">
               <X className="size-3.5" />
               Exit
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={showCustomer}
-              aria-label="Show customer"
-              title="Show customer: full-screen 3D"
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-mk-line bg-mk-panel px-2 text-[12.5px] font-medium hover:bg-mk-subtle"
-            >
-              <Maximize2 className="size-3.5" />
-              <span className="hidden min-[1500px]:inline">Show customer</span>
-            </button>
+            <>
+              <FullViewButton on={fullView.on} onToggle={fullView.toggle} />
+              <button
+                type="button"
+                onClick={showCustomer}
+                aria-label="Show customer"
+                title="Show customer: full-screen 3D"
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-mk-line bg-mk-panel px-2 text-[12.5px] font-medium hover:bg-mk-subtle"
+              >
+                <Presentation className="size-3.5" />
+                <span className="hidden min-[1500px]:inline">Show customer</span>
+              </button>
+            </>
           )}
         </div>
       </header>

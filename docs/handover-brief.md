@@ -18,17 +18,17 @@ All data is sample data. There is no backend, login or database: the project is 
 
 ## **What has been built**
 
-Git history has two working commits, "Days 4–6: design screen, drag and drop" and "Days 7–9: 3D, appliances, checks, quote, approval, PDF". The Day 10 changes are not committed yet; ask the owner which build you are testing.
+Everything is committed on `main`. The demo build of 2026-11-17 is tagged `demo-2026-11-17` and includes the Feedback 1 and 2 changes (listed in `docs/HARDENING.md`, "feedback-1: every change, in one place"). Ask the owner which build you are testing.
 
 | Area | What it does | Where to see it |
 | ----- | ----- | ----- |
 | Room setup | Any-shape room built wall by wall (length \+ heading), ceiling height, features: window, door, plumbing, column, beam, duct box. Templates, "Close room" hint, live plan drawn to scale. Design is locked until the room closes. | /setup |
 | Design: placement | Drag units from the catalogue onto a wall elevation. Units snap to neighbours and walls; Alt disables snapping. Arrow keys nudge (Shift \= 100 mm), Delete removes, Esc deselects. Undo/redo with ⌘Z / ⇧⌘Z. | /design, middle panel |
-| Design: rules | Each drop is checked before it commits. Blocked drops show a card with suggested fixes; warnings show a note. Checks include overlap, outside wall, covers window, blocks door, above ceiling, beam (short lofts), column, leftover gap, corner and blind side, appliance fit, custom size, discount. | Blocked card; footer checks popover |
+| Design: rules | Each drop is checked before it commits. Blocked drops show a card with suggested fixes; warnings show a note. Checks include overlap, outside wall, covers window, blocks door, above ceiling, beam (short lofts), column, leftover gap, corners (a front hidden behind a neighbour, handles clashing where two fronts meet) and blind side, appliance fit, custom size, discount. | Blocked card; footer checks popover |
 | Design: appliances | Sink and hob fit into a sink or hob unit, with countertop cut-outs. Oven and microwave fit into a tall unit. Chimney, dishwasher and fridge space are placed freely. Each can be marked as the customer's own. | Appliances tab |
 | Design: finishes | Carcass, finish, shutter type and hardware per unit. New units inherit the last finish used in their group (base, wall and loft, tall). | Inspector (right panel) |
 | Plan view | Top view with unit footprints and countertop cut-outs; click to select. | Plan tab |
-| 3D (Level 1\) | Display only: rotate, zoom, click to select, presets 3D / Top / Facing wall, walls cut at 450 or full height, "Show customer" full screen. | Design right-centre panel, Quote screen |
+| 3D (Level 1\) | Display only: rotate, zoom, click to select, presets 3D / Top / Facing wall, walls Auto (the walls in front hidden), cut at 450 or full height, "Show customer" full screen. | Design right-centre panel, Quote screen |
 | Pricing | Live running total in Indian format (₹4,12,800), GST 18%, change since last edit. | Design footer |
 | Quote | Units grouped Base / Wall / Loft / Tall with carcass and shutter cost tags, hardware, appliances and countertop, discount, totals, activity log. | /quote |
 | Approval | Salesperson sends for approval; manager approves or sends back with a comment. A design change after approval returns the quote to draft as a new version. | Avatar menu to switch role |
@@ -76,12 +76,13 @@ The right-hand column never keeps its own copy of the placements; the rule check
 
 Test against a production build, not `npm run dev`. The dev server behaves differently: it is slower, shows extra React warnings and does not hide the /spike page.
 
-1. Install Node.js 20 or later, then run `npm install` in the project folder.  
+1. Install Node.js 20 or later, then run `npm ci` in the project folder (not `npm install`, which can rewrite the lockfile; see `docs/HARDENING.md`, "Lockfile note").  
 2. Run the checks. Each must finish clean before you test:  
-   1. `npm test` (150 Vitest tests)  
+   1. `npm test` (279 Vitest tests)  
    2. `npx tsc --noEmit` (type check)  
    3. `npm run lint`  
    4. `npm run build`  
+   5. `npm run e2e` (builds, then runs the Playwright tests in Google Chrome at both sizes: 78 pass, 2 skip, the automatic performance mode)  
 3. Start the server: `npm start` (port 3000), or `PORT=3100 npm start` if 3000 is taken.  
 4. Open http\://localhost:3000 in Chrome. It redirects to /setup.  
 5. Set the window to the size under test. In Chrome DevTools use the device toolbar with a responsive size of 1366×768, then 1440×900. The app needs at least 1280×740; below that it scrolls.  
@@ -130,7 +131,13 @@ Tips for dragging: units are dropped onto the **elevation** (the middle panel sh
 **Design: build an L kitchen**
 
 * On Wall A, drag HU900 (hob unit) to just right of the column, then SU900 (sink unit) next to it, then BC1000 (blind corner) to the right end of wall A. Expect: each drop snaps; running total rises; a 100 mm gap between SU900 and BC1000 shows as a warning.  
-* Click the Wall B tab. Drag two BD600 units next to the corner. Expect: they start at 560 mm (the corner unit takes the first 560 mm of wall B).
+* Click the Wall B tab. Drag a BD600 next to the corner. Expect: it starts at 560 mm (the corner unit takes the first 560 mm of wall B).
+
+**Design: a corner clash and its corner filler**
+
+* Expect: an amber note says "Handles clash where BC1000 and BD600 meet at the corner of Wall A and Wall B" (BD600's drawers start right at BC1000's door). It is a warning: BD600 stays.
+* Click "Add corner filler" on the note. Expect: BC1000 moves 50 mm out of the corner and a 50 mm filler fills the corner behind it; the clash warning goes; the gap between SU900 and BC1000 is now 50 mm. The quote will list the filler as a "Filler panel" line on Wall A.
+* Drag a second BD600 next to the first. Expect: it starts at 1160 mm.
 
 **Design: trigger and fix a block**
 
@@ -139,7 +146,7 @@ Tips for dragging: units are dropped onto the **elevation** (the middle panel sh
 
 **Design: fix a gap with a filler**
 
-* Click the warnings chip in the footer, open "100 mm gap between SU900 and BC1000 on Wall A", click "Add a 100 mm filler". Expect: a filler fills the gap; one warning left (the 40 mm on wall B). It doesn't block the quote.
+* Click the warnings chip in the footer, open "50 mm gap between SU900 and BC1000 on Wall A", click "Add a 50 mm filler". Expect: a filler fills the gap; one warning left (the 40 mm on wall B). It doesn't block the quote.
 
 **Design: appliances and finishes**
 
@@ -148,13 +155,13 @@ Tips for dragging: units are dropped onto the **elevation** (the middle panel sh
 
 **Design: customer view**
 
-* Click the expand button in the 3D panel header ("Show customer"). Expect: full-screen 3D with the project name, wall-height toggle, view presets and rotate/zoom only.  
+* Click the presentation button in the 3D panel header ("Show customer"). Expect: full-screen 3D with the project name, the wall-height toggle (Auto, Cut at 450, Full height; Auto is on, so the walls in front are hidden), view presets and rotate/zoom only.  
 * Click Exit (or press Esc). Expect: back to the Design screen, nothing changed.  
 * Click Review Quote.
 
 **Quote**
 
-* Check the header. Expect: "Draft quote · Version 1", status Draft; no quote number yet.  
+* Check the header. Expect: "Draft quote · Version 1", status Draft; no quote number yet. The 3D view is in Auto. The Base group lists two "Filler panel" lines on Wall A, 50 × 720 × 20 (the corner filler and the gap filler).  
 * Set Discount to 8 and press Enter. Expect: "above 5% · needs approval" under the discount; totals recalculate.  
 * Click Send for Approval. Expect: header becomes "Quote MMK-AND-2026-0147 · Version 1", status Pending manager approval.  
 * Avatar menu → Switch to Manager (Store Manager). Expect: a blue "Waiting for your approval" banner; Approve and Send back buttons.  
@@ -193,7 +200,7 @@ None of these block the demo, but each could surprise a presenter. Report anythi
 
 **Watch closely:**
 
-* **One browser, one project.** The save lives in that browser's localStorage. A different browser, profile or private window starts fresh. Two tabs open on the same project can overwrite each other.  
+* **One browser, one project.** The save lives in that browser's localStorage. A different browser, profile or private window starts fresh. A second tab on the same project is blocked with a notice; close the first tab and reload the second to switch.  
 * **"Show customer" full screen** was only partly tested by automation. Check that it enters full screen and that Esc and Exit both leave it.  
 * **Print dialog.** The print page was verified; the native print dialog and the saved PDF were not. Check page breaks and that the 3D picture appears in the saved file.  
 * **Automatic performance mode** fires once per demo. If it fires when it shouldn't, turn it off in the menu; it won't fire again until Reset demo.  

@@ -9,10 +9,12 @@ import { finishGroup, inheritedFinish, type FinishChoice, type FinishGroup } fro
 import { defaultBlindSide, findPlacement, isModulePlacement, placementToWorldBox, type WorldBox } from "@/domain/geometry";
 import { priceProject } from "@/domain/pricing";
 import { checkCandidate, hasBlocked, issueKey, runAllChecks, runRawChecks } from "@/domain/rules";
-import { validateRoom } from "@/domain/room-validation";
+import { closingHint, gapClosure, validateRoom } from "@/domain/room-validation";
+import { defaultFreeEnd, drawFromEnd, freeEnds, sameEnd, type EndRef, type NewWallDraft } from "@/domain/wall-ends";
 import { approvalItems, approve, createQuote, designChanged, MANAGER_NAME, markPdfDownloaded, markShared, returnToDraft, sendBack, sendForApproval, type ApprovalMode } from "@/domain/quote";
 import { isUsableProject } from "@/domain/project-validation";
 import { emptyMehta, sampleDesign } from "@/domain/seed";
+import { nextWall, turnedTo, turnSubject, wallsUnitFits, withNearestFreeFix, type Turnable } from "@/domain/turn";
 import type { WallHeightMode } from "@/domain/three-model";
 import type {
   AppliancePlacement,
@@ -24,6 +26,7 @@ import type {
   Placement,
   Project,
   ProjectStatus,
+  Room,
   SuppliedBy,
   Wall,
 } from "@/domain/types";
@@ -45,6 +48,14 @@ export interface PlaceResult {
   results: CheckResult[];
 }
 
+/** A turn to another wall (R, Shift+R, the Wall picker). */
+export interface TurnResult extends PlaceResult {
+  /** The unit as turned (on its new wall), when there was a wall to turn to. */
+  candidate?: Turnable;
+  /** `nothing`: no unit or free appliance to turn; `no-wall`: no other standing wall it fits on. */
+  reason?: "nothing" | "no-wall";
+}
+
 export const HISTORY_LIMIT = 50;
 
 export type DesignTab = "plan" | "wall";
@@ -61,8 +72,13 @@ export interface UiState {
   elevationZoom: number;
   /** Last finish/shutter chosen per group; new units inherit it. */
   recentFinish: Partial<Record<FinishGroup, FinishChoice>>;
-  /** 3D walls: cut low so the kitchen shows from any angle, or full height. */
+  /** Design 3D walls: cut low so the kitchen shows from any angle, full height, or auto. */
   wallHeight: WallHeightMode;
+  /**
+   * 3D walls where the customer looks: Show customer, the Quote screen and the PDF picture taken
+   * from it. Auto by default: the walls between the camera and the room are hidden.
+   */
+  presentWallHeight: WallHeightMode;
   /** The 3D view fills the screen for the customer, with only view controls. */
   customerView: boolean;
   /** The Quote screen's 3D picture at the iso preset, handed to the print page. Never persisted. */
@@ -111,6 +127,7 @@ export const initialUi: UiState = {
   elevationZoom: 1,
   recentFinish: {},
   wallHeight: "cut",
+  presentWallHeight: "auto",
   customerView: false,
   snapshot: null,
   returnedToDraft: null,
@@ -141,13 +158,28 @@ export interface ProjectState {
 
   setProjectInfo: (info: ProjectInfo) => void;
   addWall: (wall: NewWall) => string;
+  /**
+   * Draws a new wall from a free end (`from`, or the default end when null): one undo step. Every
+   * existing corner stays put. Returns the new wall and its far end, or null if there is no free end.
+   */
+  drawWall: (from: EndRef | null, draft: NewWallDraft) => { id: string; far: EndRef; joined: boolean } | null;
+  /** Fills a gap with the one or two right-angle walls from its start to its end, if they fit. */
+  closeGap: (id: string) => void;
   /** Appends several walls as one undoable step (used by "Close room"). */
   appendWalls: (walls: NewWall[]) => void;
   /** Replaces every wall (templates). Features and placements are kept for the rules to re-check. */
   replaceWalls: (walls: NewWall[]) => void;
   updateWall: (id: string, patch: Partial<NewWall>) => void;
-  /** Also removes the wall's features and everything placed on it. */
+  /**
+   * Leaves the wall's place as an open segment (same letter, length and heading), so no other wall
+   * moves, and removes its features and everything placed on it. With no standing wall left, the
+   * room is cleared.
+   */
   removeWall: (id: string) => void;
+  /** Draws a wall in an open segment: the deleted wall comes back with its letter, length and heading. */
+  fillGap: (id: string) => void;
+  /** "Close room": fills every open segment and adds the walls that close the chain, as one undoable step. */
+  closeRoom: () => void;
   setCeiling: (mm: number) => void;
   addFeature: (feature: NewFeature) => string;
   updateFeature: (id: string, patch: FeaturePatch) => void;
@@ -163,6 +195,13 @@ export interface ProjectState {
   placeWithFix: (candidate: NewPlacement, fix: Fix) => PlaceResult;
   /** Same behaviour as tryPlaceModule. Fitted appliances move with their host. */
   movePlacement: (id: string, wallId: string, offsetMm: number) => PlaceResult;
+  /**
+   * Turns a unit (or free appliance; a fitted appliance turns its host) to face from another wall:
+   * the next (1) or previous (-1) wall it fits on, or a given wall. It goes to its footprint centre
+   * projected onto that wall. Runs the normal checks: commits as one undoable step, or returns the
+   * blocked results with "Move to nearest free spot on Wall X" as the first fix.
+   */
+  turnPlacement: (id: string, target: 1 | -1 | string) => TurnResult;
   /** Finish, shutter, hardware and blind side. Returns false if a hardware item isn't allowed on the module. */
   updatePlacement: (id: string, patch: PlacementPatch) => boolean;
   removePlacement: (id: string) => void;
@@ -203,6 +242,7 @@ export interface ProjectState {
   setDesignTab: (tab: DesignTab) => void;
   setElevationZoom: (zoom: number) => void;
   setWallHeight: (mode: WallHeightMode) => void;
+  setPresentWallHeight: (mode: WallHeightMode) => void;
   setCustomerView: (on: boolean) => void;
   /** Finish and shutter for a new unit of this module, inherited from its group. */
   finishFor: (moduleCode: string) => FinishChoice;
@@ -235,6 +275,26 @@ function nextWallLetter(walls: Wall[]): string {
 }
 
 export const HEADING_NAMES: Record<Heading, string> = { N: "North", E: "East", S: "South", W: "West" };
+
+/**
+ * Fills a gap, in place: a deleted wall's own gap comes back as that wall; a gap a wall was drawn
+ * into gets the one or two right-angle walls from its start to its end (`gapClosure`), with new
+ * letters, if they fit.
+ */
+function fillGapIn(room: Room, id: string) {
+  const gap = room.walls.find((w) => w.id === id);
+  if (!gap?.open) return;
+  if (!gap.gapMm) {
+    delete gap.open;
+    return;
+  }
+  const fill = gapClosure(room, id);
+  if (!fill?.valid) return;
+  const others = room.walls.filter((w) => w !== gap);
+  const added: Wall[] = [];
+  for (const w of fill.walls) added.push({ heading: w.heading, lengthMm: w.lengthMm, label: HEADING_NAMES[w.heading], id: nextWallLetter([...others, ...added]) });
+  room.walls.splice(room.walls.indexOf(gap), 1, ...added);
+}
 
 function nextFeatureId(project: Project, kind: string): string {
   const taken = new Set(project.room.features.map((f) => f.id));
@@ -494,9 +554,24 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             edit((p) => {
               for (const wall of walls) p.room.walls.push({ ...wall, id: nextWallLetter(p.room.walls) });
             }),
+          drawWall: (from, draft) => {
+            const room = get().project.room;
+            const end = from ? freeEnds(room).find((e) => sameEnd(e, from)) : defaultFreeEnd(room);
+            if (room.walls.length > 0 && !end) return null;
+            const id = nextWallLetter(room.walls);
+            const drawn = drawFromEnd(room, end ?? null, draft, id);
+            edit((p) => {
+              p.room = drawn.room;
+              const wall = p.room.walls.find((w) => w.id === id)!;
+              wall.label ??= HEADING_NAMES[wall.heading];
+            });
+            return { id, far: drawn.far, joined: drawn.joined };
+          },
+          closeGap: (id) => edit((p) => fillGapIn(p.room, id)),
           replaceWalls: (walls) =>
             edit((p) => {
               p.room.walls = walls.map((w, i) => ({ ...w, id: LETTERS[i] }));
+              delete p.room.start;
             }),
           updateWall: (id, patch) =>
             edit((p) => {
@@ -506,7 +581,13 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           removeWall: (id) => {
             edit((p) => {
               const room = p.room;
-              room.walls = room.walls.filter((w) => w.id !== id);
+              const wall = room.walls.find((w) => w.id === id);
+              if (!wall || wall.open) return;
+              wall.open = true;
+              if (room.walls.every((w) => w.open)) {
+                room.walls = [];
+                delete room.start;
+              }
               room.features = room.features.filter((f) => !("wallId" in f) || f.wallId !== id);
               const removed = new Set(p.modules.filter((m) => m.wallId === id).map((m) => m.id));
               p.modules = p.modules.filter((m) => !removed.has(m.id));
@@ -515,6 +596,19 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
               );
             });
             clearMissingSelection();
+          },
+          fillGap: (id) =>
+            edit((p) => {
+              const wall = p.room.walls.find((w) => w.id === id);
+              if (wall?.open && !wall.gapMm) delete wall.open;
+            }),
+          closeRoom: () => {
+            edit((p) => {
+              for (const gap of p.room.walls.filter((w) => w.open).map((w) => w.id)) fillGapIn(p.room, gap);
+              const hint = closingHint(p.room);
+              if (!hint?.valid) return;
+              for (const w of hint.walls) p.room.walls.push({ heading: w.heading, lengthMm: w.lengthMm, label: HEADING_NAMES[w.heading], id: nextWallLetter(p.room.walls) });
+            });
           },
           setCeiling: (mm) =>
             edit((p) => {
@@ -584,6 +678,9 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
             const app = project.appliances.find((a) => a.id === id);
             const moved = mod ? { ...mod, wallId, offsetMm } : app?.kind === "free" ? { ...app, wallId, offsetMm } : undefined;
             if (!moved) return { ok: false, id, results: [] };
+            // On another wall a blind corner unit's blind side faces that wall's nearer end.
+            const blindSide = mod && mod.wallId !== wallId && mod.blindSide ? defaultBlindSide(project.room, wallId, offsetMm, mod.widthMm) : undefined;
+            if (blindSide) (moved as ModulePlacement).blindSide = blindSide;
             const results = checkCandidate(project, catalogue, moved);
             const ok = !hasBlocked(results);
             if (ok) {
@@ -592,10 +689,32 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
                 if (target && "offsetMm" in target) {
                   target.wallId = wallId;
                   target.offsetMm = offsetMm;
+                  if (blindSide && "moduleCode" in target) target.blindSide = blindSide;
                 }
               });
             }
             return { ok, id, results };
+          },
+          turnPlacement: (id, target) => {
+            const { project } = get();
+            const subject = turnSubject(project, id);
+            if (!subject) return { ok: false, id, results: [], reason: "nothing" };
+            const wallId =
+              typeof target === "string"
+                ? target !== subject.wallId && wallsUnitFits(project, catalogue, subject).includes(target)
+                  ? target
+                  : null
+                : nextWall(project, catalogue, subject, subject.wallId, target);
+            if (!wallId) return { ok: false, id: subject.id, results: [], reason: "no-wall" };
+            const turned = turnedTo(project, catalogue, subject, wallId);
+            const results = checkCandidate(project, catalogue, turned);
+            if (hasBlocked(results)) return { ok: false, id: subject.id, results: withNearestFreeFix(project, catalogue, turned, results), candidate: turned };
+            edit((p) => {
+              const list: Turnable[] = isModulePlacement(turned) ? p.modules : (p.appliances as Turnable[]);
+              const i = list.findIndex((x) => x.id === turned.id);
+              if (i >= 0) list[i] = turned;
+            });
+            return { ok: true, id: subject.id, results, candidate: turned };
           },
           updatePlacement: (id, patch) => {
             const mod = get().project.modules.find((m) => m.id === id);
@@ -715,6 +834,10 @@ export function createProjectStore(initial: Project, storage: () => StateStorage
           setWallHeight: (mode) =>
             set((s) => {
               s.ui.wallHeight = mode;
+            }),
+          setPresentWallHeight: (mode) =>
+            set((s) => {
+              s.ui.presentWallHeight = mode;
             }),
           setCustomerView: (on) =>
             set((s) => {

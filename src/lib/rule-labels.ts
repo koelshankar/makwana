@@ -21,6 +21,7 @@ const RULE_TOPICS: Record<string, string> = {
   "outside-wall": "Wall length",
   "leftover-gap": "Gaps",
   corner: "Corners",
+  "corner-clash": "Corners",
   "finish-shutter": "Finishes",
   layer: "Rows",
   "blind-side": "Corners",
@@ -46,7 +47,7 @@ export function splitMessage(message: string): { title: string; detail: string }
 }
 
 /** Rules about a place on a wall rather than one unit: the popover highlights their anchor. */
-export const ANCHOR_RULES: Record<string, "gap" | "corner"> = { "leftover-gap": "gap", corner: "corner" };
+export const ANCHOR_RULES: Record<string, "gap" | "corner"> = { "leftover-gap": "gap", corner: "corner", "corner-clash": "corner" };
 
 /** Blocked first, then approval, then warning. */
 export const STATUS_ORDER: Record<CheckResult["status"], number> = { blocked: 0, approval: 1, warning: 2, pass: 3 };

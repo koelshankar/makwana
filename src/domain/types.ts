@@ -15,6 +15,17 @@ export interface Wall {
   lengthMm: number;
   heading: Heading; // direction of travel along the wall
   label?: string; // short note shown in Room Setup, e.g. "East · window"
+  /**
+   * A deleted wall's place in the chain: an open segment with its letter, length and heading, so
+   * the walls after it don't move. Nothing stands on it; the room is open until a wall is drawn in.
+   */
+  open?: true;
+  /**
+   * Only on an open segment that a wall has been drawn into from one of its ends: the gap left, from
+   * its start to its end, which needn't be along one heading. It replaces length and heading for
+   * the room's shape. A gap without it is a deleted wall's own place and can be drawn back as it was.
+   */
+  gapMm?: { dx: number; dy: number };
 }
 
 export interface WindowFeature {
@@ -79,6 +90,8 @@ export type Feature =
 
 export interface Room {
   walls: Wall[];
+  /** Where the first wall starts; absent means (0, 0). Moves only when a wall is drawn back from Wall A's start. */
+  start?: Point;
   ceilingHeightMm: number;
   features: Feature[];
 }
@@ -312,6 +325,11 @@ export type FixAction =
   | { type: "replace"; placementId: string; moduleCode: string }
   | { type: "replaceAndMove"; placementId: string; moduleCode: string; offsetMm: number }
   | { type: "addFiller"; wallId: string; layer: Layer; offsetMm: number; widthMm: number }
+  /**
+   * A corner filler: moves a unit along its wall to `offsetMm` (pushing on any unit in its layer it
+   * would run into) and puts a FIL "Filler panel" `widthMm` wide at `fillerOffsetMm`, as one action.
+   */
+  | { type: "addCornerFiller"; placementId: string; offsetMm: number; fillerOffsetMm: number; widthMm: number }
   | { type: "resize"; placementId: string; widthMm: number }
   | { type: "remove"; placementId: string }
   | { type: "setShutterType"; placementId: string; shutterTypeId: string }
@@ -345,4 +363,6 @@ export interface CheckResult {
   message: string;
   fixes: Fix[];
   anchor?: Anchor;
+  /** Why a fix isn't offered: when no safe fix labelled `label` is kept, `reason` is added to the message. */
+  noFixReason?: { label: string; reason: string };
 }

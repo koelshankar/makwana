@@ -1,6 +1,7 @@
 import { FILLER_MAX_MM, getModule, moduleInFamily } from "../catalogue";
-import { isModulePlacement, isRoomClosed, LAYER_DEPTH_MM, signedArea, wallSegments, worldToWall } from "../geometry";
-import type { BlindSide, Catalogue, CheckResult, Fix, Layer, ModulePlacement, Project } from "../types";
+import { isModulePlacement } from "../geometry";
+import type { Catalogue, CheckResult, Fix, Layer, ModulePlacement, Project } from "../types";
+import { clashZones } from "./corner";
 import {
   boxesOverlap,
   getContext,
@@ -23,7 +24,6 @@ function ownModule(ctx: RuleContext, occ: Occupant | undefined): ModulePlacement
   if (!p || !isModulePlacement(p) || getModule(ctx.cat, p.moduleCode).family === "FIL") return undefined;
   return p;
 }
-const CORNER_REACH_MM = 1000;
 
 /** Rule 1: two placements' world boxes intersect, including across a corner. */
 export function overlapRule(project: Project, cat: Catalogue, opts: RuleOptions = {}): CheckResult[] {
@@ -98,12 +98,14 @@ const LAYERS: Layer[] = ["base", "tall", "wall", "loft"];
 /**
  * Rule 8: a gap of 1–299 mm between neighbours, or between a unit and the wall end, a
  * column or a door. Neighbours include units from adjacent walls that reach into this wall's
- * band, so the corner unit on wall A counts as the start of wall B's run.
+ * band, so the corner unit on wall A counts as the start of wall B's run. A gap where two fronts
+ * clash at a corner is left to the corner clash rule, whose filler fixes both.
  */
 export function leftoverGapRule(project: Project, cat: Catalogue): CheckResult[] {
   const ctx = getContext(project, cat);
   const results: CheckResult[] = [];
   const seen = new Set<string>();
+  const clashes = clashZones(ctx);
 
   for (const frame of ctx.frames) {
     for (const layer of LAYERS) {
@@ -129,6 +131,7 @@ export function leftoverGapRule(project: Project, cat: Catalogue): CheckResult[]
         const prevOwn = typeof g.prev !== "string" && g.prev.own ? g.prev : undefined;
         const nextOwn = typeof g.next !== "string" && g.next.own ? g.next : undefined;
         if (!prevOwn && !nextOwn) continue;
+        if (clashes.some((z) => z.wallId === frame.wallId && z.layer === layer && z.along[0] <= g.from && g.to <= z.along[1])) continue;
         const key = `${frame.wallId}:${g.from}:${g.to}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -191,84 +194,4 @@ export function leftoverGapRule(project: Project, cat: Catalogue): CheckResult[]
     }
   }
   return results.length ? results : [pass("leftover-gap", "fit", "No awkward gaps between units")];
-}
-
-/**
- * Rule 9: an inside corner where both walls have base units within 1000 mm of the corner
- * and no blind corner unit there has its blind side facing the corner.
- */
-export function cornerRule(project: Project, cat: Catalogue): CheckResult[] {
-  const ctx = getContext(project, cat);
-  const segs = wallSegments(project.room);
-  const area = signedArea(project.room);
-  const closed = isRoomClosed(project.room);
-  const results: CheckResult[] = [];
-
-  for (let i = 0; i < segs.length; i++) {
-    if (i === segs.length - 1 && !closed) break;
-    const s1 = segs[i];
-    const s2 = segs[(i + 1) % segs.length];
-    const turn = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x;
-    if (turn === 0 || Math.sign(turn) !== Math.sign(area)) continue; // not an inside corner
-
-    const corner = s1.end;
-    const nearCorner = (wallId: string) => {
-      const frame = ctx.frameById.get(wallId)!;
-      const cornerOffset = worldToWall(frame, corner).offsetMm;
-      return ctx.entries
-        .filter((e) => e.slot?.wallId === wallId && e.slot.layer === "base" && !e.isFiller && isModulePlacement(e.placement))
-        .map((e) => {
-          const { offsetMm: o, widthMm: w } = e.slot!;
-          const cornerSide: BlindSide = cornerOffset === 0 ? "left" : "right";
-          const dist = cornerSide === "left" ? o : frame.lengthMm - (o + w);
-          const blindSide = isModulePlacement(e.placement) ? e.placement.blindSide : undefined;
-          return { e, dist, cornerSide, facesCorner: blindSide === cornerSide, wallLength: frame.lengthMm };
-        })
-        .filter((x) => x.dist < CORNER_REACH_MM)
-        .sort((a, b) => a.dist - b.dist);
-    };
-    // The corner square on the first wall: where the elevation marks the issue.
-    const f1 = ctx.frameById.get(s1.wallId)!;
-    const atStart = worldToWall(f1, corner).offsetMm === 0;
-    const reach = Math.min(f1.lengthMm, LAYER_DEPTH_MM.base);
-    const anchor = { wallId: s1.wallId, layer: "base" as const, offsetMm: atStart ? 0 : f1.lengthMm - reach, widthMm: reach };
-    const near1 = nearCorner(s1.wallId);
-    const near2 = nearCorner(s2.wallId);
-    if (!near1.length || !near2.length) continue;
-
-    const blinds = [...near1, ...near2].filter(({ e }) => isModulePlacement(e.placement) && getModule(cat, e.placement.moduleCode).hasBlindSide);
-    const facing = blinds.filter((b) => b.facesCorner);
-    if (facing.length) continue;
-
-    if (blinds.length) {
-      const b = blinds[0];
-      const side = b.cornerSide;
-      results.push({
-        ruleId: "corner",
-        group: "fit",
-        status: "warning",
-        placementIds: [b.e.id],
-        message: `${b.e.label} on ${wallName(b.e.slot!.wallId)} has its blind side facing away from the corner. Flip it so the blind section sits in the corner.`,
-        fixes: [{ label: `Make the blind side ${side}`, action: { type: "setBlindSide", placementId: b.e.id, blindSide: side } }],
-        anchor,
-      });
-      continue;
-    }
-
-    const u1 = near1[0];
-    const u2 = near2[0];
-    results.push({
-      ruleId: "corner",
-      group: "fit",
-      status: "warning",
-      placementIds: [u1.e.id, u2.e.id],
-      message: `The corner between ${wallName(s1.wallId)} and ${wallName(s2.wallId)} has no corner solution. Use a BC1000 blind corner unit so the corner space is reachable.`,
-      fixes: [u1, u2].map((u) => ({
-        label: `Replace ${u.e.label} on ${wallName(u.e.slot!.wallId)} with BC1000 in the corner`,
-        action: { type: "replaceAndMove" as const, placementId: u.e.id, moduleCode: "BC1000", offsetMm: u.cornerSide === "left" ? 0 : u.wallLength - 1000 },
-      })),
-      anchor,
-    });
-  }
-  return results.length ? results : [pass("corner", "fit", "Corners are handled")];
 }

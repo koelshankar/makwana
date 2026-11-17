@@ -32,6 +32,40 @@ function uniqueId(project: Project, base: string): string {
   return `${base}-${n}`;
 }
 
+/**
+ * Moves a unit along its wall to `offsetMm`. Units and free appliances in the same layer that it would
+ * run into are pushed on, each just far enough. Whether the result fits is for the rules to say.
+ */
+function pushAlongWall(project: Project, cat: Catalogue, unit: ModulePlacement, offsetMm: number): Project {
+  const delta = offsetMm - unit.offsetMm;
+  if (delta === 0) return project;
+  const start = unit.offsetMm;
+  const end = unit.offsetMm + unit.widthMm;
+  return produce(project, (draft) => {
+    const moving = draft.modules.find((m) => m.id === unit.id)!;
+    moving.offsetMm = offsetMm;
+    const run = [
+      ...draft.modules.filter((m) => m.id !== unit.id && m.wallId === unit.wallId && m.layer === unit.layer).map((p) => ({ p, w: p.widthMm })),
+      ...draft.appliances.flatMap((p) =>
+        p.kind === "free" && p.wallId === unit.wallId && p.layer === unit.layer ? [{ p, w: getAppliance(cat, p.applianceId).widthMm }] : [],
+      ),
+    ];
+    if (delta > 0) {
+      let cursor = offsetMm + unit.widthMm;
+      for (const o of run.filter((o) => o.p.offsetMm >= end).sort((a, b) => a.p.offsetMm - b.p.offsetMm)) {
+        if (o.p.offsetMm < cursor) o.p.offsetMm = cursor;
+        cursor = Math.max(cursor, o.p.offsetMm + o.w);
+      }
+    } else {
+      let cursor = offsetMm;
+      for (const o of run.filter((o) => o.p.offsetMm + o.w <= start).sort((a, b) => b.p.offsetMm - a.p.offsetMm)) {
+        if (o.p.offsetMm + o.w > cursor) o.p.offsetMm = cursor - o.w;
+        cursor = Math.min(cursor, o.p.offsetMm);
+      }
+    }
+  });
+}
+
 /** Applies a fix action to a project, returning a new project. Pure; used by rules and the store. */
 export function applyFix(project: Project, cat: Catalogue, action: FixAction): Project {
   switch (action.type) {
@@ -60,6 +94,13 @@ export function applyFix(project: Project, cat: Catalogue, action: FixAction): P
         isCustomSize: false,
       };
       return withPlacement(project, filler);
+    }
+
+    case "addCornerFiller": {
+      const mod = project.modules.find((m) => m.id === action.placementId);
+      if (!mod) throw new Error(`Unknown unit ${action.placementId}`);
+      const moved = pushAlongWall(project, cat, mod, action.offsetMm);
+      return applyFix(moved, cat, { type: "addFiller", wallId: mod.wallId, layer: mod.layer, offsetMm: action.fillerOffsetMm, widthMm: action.widthMm });
     }
 
     case "placeHostWithAppliance": {

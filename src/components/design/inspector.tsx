@@ -1,18 +1,19 @@
 "use client";
 
+import { useMemo } from "react";
 import { Check, CookingPot, GalleryVerticalEnd, Grip, Hand, Plus, RotateCw, Trash2, X } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { catalogue, getAppliance, getCarcass, getHardware, getModule, getShutterType } from "@/domain/catalogue";
 import { formatINR } from "@/domain/format";
 import { addOnTotal, appliancePrice, cutOutPrice, moduleLine } from "@/domain/pricing";
-import { firstSentence, nearestValidOffset } from "@/domain/rules";
 import { validShutterTypes } from "@/domain/rules/product";
 import type { AppliancePlacement, BlindSide, HardwareSelection, ModulePlacement } from "@/domain/types";
+import { wallsUnitFits } from "@/domain/turn";
 import { cn } from "@/lib/utils";
 import { projectStore, useProjectStore } from "@/store/project-store";
+import { turnSelected } from "./commit";
 
 function Section({ n, title, aside, children }: { n: number; title: string; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -72,21 +73,34 @@ function size(p: ModulePlacement) {
   return `${p.widthMm} × ${line.heightMm} × ${line.depthMm}`;
 }
 
-function moveToWall(p: ModulePlacement, wallId: string) {
-  const { project } = projectStore.getState();
-  const offset = nearestValidOffset(project, catalogue, p, wallId);
-  if (offset === null) {
-    toast.error(`${p.moduleCode} doesn't fit anywhere on Wall ${wallId}.`);
-    return;
-  }
-  const res = projectStore.getState().movePlacement(p.id, wallId, offset);
-  if (!res.ok) {
-    const reason = res.results.find((r) => r.status === "blocked");
-    toast.error(reason ? firstSentence(reason.message) : `Couldn't move ${p.moduleCode}.`);
-    return;
-  }
-  projectStore.getState().select(p.id);
-  toast.success(`Moved to Wall ${wallId} at ${offset} mm`);
+/**
+ * The wall a unit or free appliance faces from: a picker of the walls it fits on (wallsUnitFits,
+ * the same list as the elevation's Move button) and a turn button (R). Both turn it the same way:
+ * the projected position first, the Blocked card if blocked.
+ */
+function WallPicker({ p }: { p: ModulePlacement | Extract<AppliancePlacement, { kind: "free" }> }) {
+  const project = useProjectStore((s) => s.project);
+  const walls = useMemo(() => wallsUnitFits(project, catalogue, p), [project, p]);
+  return (
+    <span className="flex items-center gap-1.5">
+      <InlineSelect
+        label="Wall"
+        className="w-[110px]"
+        value={p.wallId}
+        options={(walls.includes(p.wallId) ? walls : [p.wallId, ...walls]).map((id) => ({ value: id, label: `Wall ${id}` }))}
+        onChange={(wallId) => wallId !== p.wallId && turnSelected(p.id, wallId)}
+      />
+      <button
+        type="button"
+        aria-label="Turn to the next wall"
+        title="Turn to face the next wall (R) · Shift+R: the previous wall"
+        onClick={() => turnSelected(p.id, 1)}
+        className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border border-mk-line text-mk-ink hover:border-mk-ink-2"
+      >
+        <RotateCw className="size-4" />
+      </button>
+    </span>
+  );
 }
 
 const HARDWARE_ICONS: Record<string, typeof Grip> = {
@@ -227,7 +241,6 @@ function IncludedBadge() {
 }
 
 function ModuleInspector({ p }: { p: ModulePlacement }) {
-  const walls = useProjectStore((s) => s.project.room.walls);
   const mod = getModule(catalogue, p.moduleCode);
   const line = moduleLine(p, catalogue);
   const addOns = addOnTotal(p, catalogue);
@@ -248,13 +261,7 @@ function ModuleInspector({ p }: { p: ModulePlacement }) {
           <span className="num">{size(p)} mm</span>
         </Row>
         <Row label="Wall">
-          <InlineSelect
-            label="Wall"
-            className="w-[110px]"
-            value={p.wallId}
-            options={walls.map((w) => ({ value: w.id, label: `Wall ${w.id}` }))}
-            onChange={(wallId) => wallId !== p.wallId && moveToWall(p, wallId)}
-          />
+          <WallPicker p={p} />
         </Row>
         {!isFiller && (
           <Row label="Carcass">
@@ -420,9 +427,7 @@ function ApplianceInspector({ a }: { a: AppliancePlacement }) {
           </Row>
         ) : (
           <Row label="Wall">
-            <span className="num">
-              Wall {a.wallId} · {a.offsetMm} mm
-            </span>
+            <WallPicker p={a} />
           </Row>
         )}
       </Section>

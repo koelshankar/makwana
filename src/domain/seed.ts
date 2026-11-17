@@ -78,12 +78,16 @@ const sampleModules: ModulePlacement[] = [
     { itemId: "cutlery-organiser", qty: 1 },
   ]),
   mod("m-sink", "SU900", "A", "base", 1200, 900, BASE_FINISH),
-  mod("m-fil-a", "FIL", "A", "base", 2100, 100, BASE_FINISH),
-  mod("m-corner", "BC1000", "A", "base", 2200, 1000, BASE_FINISH, [{ itemId: "corner-carousel", qty: 1 }], {
+  mod("m-fil-a", "FIL", "A", "base", 2100, 50, BASE_FINISH),
+  // The blind corner unit is pulled 50 mm out of the corner (a corner filler behind it), so its door
+  // clears BD600's drawers on wall B (the corner clash rule).
+  mod("m-corner", "BC1000", "A", "base", 2150, 1000, BASE_FINISH, [{ itemId: "corner-carousel", qty: 1 }], {
     blindSide: "right",
   }),
-  // Wall A uppers: window spans 1300–2200, chimney sits at 300–1200.
-  mod("m-wa1", "W600", "A", "wall", 2600, 600, UPPER_FINISH, [{ itemId: "lift-up", qty: 1 }]),
+  mod("m-fil-corner", "FIL", "A", "base", 3150, 50, BASE_FINISH),
+  // Wall A uppers: window spans 1300–2200, chimney sits at 300–1200. W600 stays clear of the corner:
+  // W900 on wall B stands in the first 350 mm in front of wall A, and their fronts need 50 mm.
+  mod("m-wa1", "W600", "A", "wall", 2200, 600, UPPER_FINISH, [{ itemId: "lift-up", qty: 1 }]),
   mod("m-la1", "L600", "A", "loft", 300, 600, UPPER_FINISH),
   mod("m-la2", "L600", "A", "loft", 900, 600, UPPER_FINISH),
   mod("m-la3", "L600", "A", "loft", 1500, 600, UPPER_FINISH),
@@ -93,7 +97,7 @@ const sampleModules: ModulePlacement[] = [
   mod("m-bd2", "BD600", "B", "base", 1160, 600, BASE_FINISH),
   mod("m-fil-b", "FIL", "B", "base", 1760, 40, BASE_FINISH),
   mod("m-tall", "T600OM", "B", "tall", 1800, 600, TALL_FINISH),
-  // Wall B uppers: the W600 on wall A occupies the first 350 mm; beam at 2400 → short lofts.
+  // Wall B uppers: W900 starts 350 mm out, clear of wall A's wall units; beam at 2400 → short lofts.
   mod("m-wb1", "W900", "B", "wall", 350, 900, UPPER_FINISH),
   mod("m-lb1", "LS900", "B", "loft", 600, 900, UPPER_FINISH),
   mod("m-lb2", "LS900", "B", "loft", 1500, 900, UPPER_FINISH),

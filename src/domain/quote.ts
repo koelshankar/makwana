@@ -2,7 +2,7 @@
 // the time and the person explicitly and returns a new project.
 
 import { catalogue as defaultCatalogue, getAppliance, getCarcass, getFinish, getHardware, getModule } from "./catalogue";
-import { findPlacement, isModulePlacement } from "./geometry";
+import { findPlacement, isModulePlacement, solidWalls } from "./geometry";
 import { PRICE_GROUP_LABELS, priceProject, type PriceLine } from "./pricing";
 import { runRawChecks } from "./rules";
 import type { ActivityAction, ActivityEntry, Catalogue, CheckResult, Layer, Project } from "./types";
@@ -358,7 +358,7 @@ export function quoteModel(project: Project, cat: Catalogue, results: CheckResul
       watermark: final ? undefined : "DRAFT",
     },
     summary: {
-      walls: project.room.walls.length,
+      walls: solidWalls(project.room).length,
       ceilingMm: project.room.ceilingHeightMm,
       layout: usedWalls.length ? `Units on ${list(usedWalls.map((w) => `Wall ${w}`))}` : "No units yet",
       carcasses: [...new Set(project.modules.map((m) => getCarcass(cat, m.carcassId).name))],

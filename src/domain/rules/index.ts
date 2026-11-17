@@ -2,11 +2,12 @@
 // the engine keeps only the fixes that are proven safe by applying them to a copy.
 
 import { applyFix, withPlacement } from "../fixes";
-import type { Anchor, Catalogue, CheckResult, Fix, ModulePlacement, Placement, Project } from "../types";
+import type { Anchor, Catalogue, CheckResult, Fix, Placement, Project } from "../types";
 import { applianceHostRule, chimneyAboveHobRule, hobUnderWindowRule, hostCapacityRule, sinkNearPlumbingRule } from "./appliance";
 import { getContext } from "./context";
 import { discountRule } from "./commercial";
-import { cornerRule, leftoverGapRule, outsideWallRule, overlapRule } from "./fit";
+import { cornerClashRule, cornerRule } from "./corner";
+import { leftoverGapRule, outsideWallRule, overlapRule } from "./fit";
 import { blindSideRule, customSizeRule, finishShutterRule, layerRule } from "./product";
 import {
   aboveCeilingRule,
@@ -30,6 +31,7 @@ export const RULES: Rule[] = [
   columnRule,
   leftoverGapRule,
   cornerRule,
+  cornerClashRule,
   finishShutterRule,
   layerRule,
   blindSideRule,
@@ -103,13 +105,14 @@ function fixGroup(fix: Fix): string {
   const a = fix.action;
   if (a.type === "move") return `move:${a.placementId}:${a.wallId}`;
   if (a.type === "placeHostWithAppliance") return `placeHost:${a.applianceId}`;
+  if (a.type === "addCornerFiller") return "cornerFiller"; // one corner filler per clash: the first that fits
   return JSON.stringify(a);
 }
 
 function withSafeFixes(project: Project, cat: Catalogue, results: CheckResult[]): CheckResult[] {
   const before = runRawChecks(project, cat);
   return results.map((r) => {
-    if (r.status === "pass" || r.fixes.length === 0) return r;
+    if (r.status === "pass") return r;
     const kept: Fix[] = [];
     const groups = new Set<string>();
     for (const fix of r.fixes) {
@@ -121,7 +124,8 @@ function withSafeFixes(project: Project, cat: Catalogue, results: CheckResult[])
         groups.add(g);
       }
     }
-    return { ...r, fixes: kept };
+    const why = r.noFixReason && !kept.some((f) => f.label === r.noFixReason!.label) ? r.noFixReason.reason : null;
+    return { ...r, message: why ? `${r.message} ${why}` : r.message, fixes: kept };
   });
 }
 
@@ -161,6 +165,8 @@ const PLACEMENT_RULES = [
   aboveCeilingRule,
   beamRule,
   columnRule,
+  cornerRule,
+  cornerClashRule,
   applianceHostRule,
   hostCapacityRule,
   hobUnderWindowRule,
@@ -197,20 +203,3 @@ export function checkPlacementFast(project: Project, cat: Catalogue, candidate: 
   return { status: "pass", reason: null, ruleId: null };
 }
 
-/**
- * The offset on `wallId` nearest to the module's current offset where the fast check passes,
- * on a 10 mm grid plus the wall end. Null if the unit fits nowhere on that wall.
- */
-export function nearestValidOffset(project: Project, cat: Catalogue, placement: ModulePlacement, wallId: string): number | null {
-  const wall = project.room.walls.find((w) => w.id === wallId);
-  if (!wall || wall.lengthMm < placement.widthMm) return null;
-  const max = wall.lengthMm - placement.widthMm;
-  const preferred = Math.min(max, Math.max(0, placement.offsetMm));
-  const candidates = new Set<number>([max]);
-  for (let o = 0; o <= max; o += 10) candidates.add(o);
-  const sorted = [...candidates].sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred) || a - b);
-  for (const offsetMm of sorted) {
-    if (checkPlacementFast(project, cat, { ...placement, wallId, offsetMm }).status === "pass") return offsetMm;
-  }
-  return null;
-}

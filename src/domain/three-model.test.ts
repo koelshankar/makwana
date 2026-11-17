@@ -12,6 +12,8 @@ import {
   REVEAL_MM,
   roomModel,
   unitParts,
+  wallHeight,
+  wallsInFront,
   type BoxPart,
   type Front,
   type Part,
@@ -192,6 +194,50 @@ describe("roomModel", () => {
   it("duct box fills the notch between the notch walls' outer faces", () => {
     const duct = roomModel(room, "full").parts.find((p) => p.key === "f-duct")!.box;
     expect(duct).toMatchObject({ minX: 1100, maxX: 1500, minY: 2050, maxY: 2500 });
+  });
+});
+
+describe("auto wall mode", () => {
+  const room = emptyMehta.room;
+  const facing = roomModel(room, "auto");
+  const k = Math.hypot(0.55, 0.62, 0.82);
+  const iso = { x: 0.55 / k, y: -0.82 / k };
+
+  it("builds the walls at full height, like Full height", () => {
+    const m = roomModel(room, "auto");
+    expect(m.height).toBe(room.ceilingHeightMm);
+    expect(wallHeight("auto", room)).toBe(2850);
+    expect(m.walls.map((w) => w.key)).toEqual(roomModel(room, "full").walls.map((w) => w.key));
+  });
+
+  it("from the 3D preset (front-left, above) hides the near walls and keeps the far ones", () => {
+    // The 3D preset looks from (-0.55, 0.62, 0.82), normalised: in plan the view runs towards +x and -y.
+    const hidden = wallsInFront(facing, iso);
+    // F's room face points at the camera, but it stands in front of the room: it hides too.
+    expect(hidden.sort()).toEqual(["C", "D", "E", "F", "G", "H"]);
+    // A and B, with the L kitchen, stay.
+    for (const id of ["A", "B"]) expect(hidden).not.toContain(id);
+  });
+
+  it("turned half way round, the other side hides", () => {
+    expect(wallsInFront(facing, { x: -iso.x, y: -iso.y }).sort()).toEqual(["A", "B", "F"]);
+  });
+
+  it("facing a wall from inside the room hides only walls behind the camera", () => {
+    // Facing wall A means looking along -n(A) = (0, -1): the C–G side, duct box included, is behind.
+    expect(wallsInFront(facing, { x: 0, y: -1 }).sort()).toEqual(["C", "D", "E", "F", "G"]);
+  });
+
+  it("looking down from above hides nothing; a glancing view doesn't count", () => {
+    expect(wallsInFront(facing, { x: 0, y: 0 })).toEqual([]);
+    // The Top preset sits a hair off vertical; mostly-down views see over the walls.
+    expect(wallsInFront(facing, { x: 0, y: -0.0001 })).toEqual([]);
+    expect(wallsInFront(facing, { x: 0.12, y: -0.18 })).toEqual([]);
+    // One wall through the centre (so only the through-the-wall rule applies), seen at an angle.
+    const one = { normals: { X: { x: 1, y: 0 } }, mids: { X: { x: 0, y: 0 } }, centre: { x: 0, y: 0 } };
+    const at = (deg: number) => ({ x: Math.cos((deg * Math.PI) / 180), y: Math.sin((deg * Math.PI) / 180) });
+    expect(wallsInFront(one, at(80)), "80° off its normal: a glance").toEqual([]);
+    expect(wallsInFront(one, at(60)), "60° off: looking through it").toEqual(["X"]);
   });
 });
 

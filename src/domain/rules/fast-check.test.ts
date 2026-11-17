@@ -3,7 +3,8 @@ import { catalogue } from "../catalogue";
 import { emptyMehta, sampleDesign } from "../seed";
 import { unit } from "../testing";
 import type { Layer, ModulePlacement, Project } from "../types";
-import { checkCandidate, checkPlacementFast, hasBlocked, nearestValidOffset } from "./index";
+import { nearestFreeOffset } from "../turn";
+import { checkCandidate, checkPlacementFast, hasBlocked } from "./index";
 
 /** Product choices that are always valid, so only placement rules can block. */
 function candidate(code: string, wallId: string, offsetMm: number, layer: Layer): ModulePlacement {
@@ -60,13 +61,14 @@ describe("checkPlacementFast", () => {
     });
   });
 
-  it("finds the nearest valid offset on another wall", () => {
+  it("finds the nearest free offset on a wall", () => {
     const b600 = candidate("B600", "A", 100, "base");
     // Wall A starts with the 300 mm column.
-    expect(nearestValidOffset(emptyMehta, catalogue, b600, "A")).toBe(300);
+    expect(nearestFreeOffset(emptyMehta, catalogue, b600, "A", 100)).toBe(300);
     // Wall B starts behind the BC1000 on wall A.
     const corner: Project = { ...emptyMehta, modules: [{ ...candidate("BC1000", "A", 2200, "base"), id: "corner" }] };
-    expect(nearestValidOffset(corner, catalogue, { ...b600, offsetMm: 0 }, "B")).toBe(560);
-    expect(nearestValidOffset(emptyMehta, catalogue, candidate("B900", "E", 0, "base"), "E")).toBeNull();
+    expect(nearestFreeOffset(corner, catalogue, { ...b600, offsetMm: 0 }, "B", 0)).toBe(560);
+    // Too long for wall E (600 mm).
+    expect(nearestFreeOffset(emptyMehta, catalogue, candidate("B900", "E", 0, "base"), "E", 0)).toBeNull();
   });
 });
